@@ -17,7 +17,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/patent")
-@CrossOrigin(origins = "*") // Connects seamlessly with your React app
+@CrossOrigin(origins = "http://localhost:5173") // Connects seamlessly with your React app
 public class PatentController {
 
     @Autowired
