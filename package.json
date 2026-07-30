@@ -1,0 +1,11 @@
+{
+  "name": "patentform-integrated",
+  "version": "1.0.0",
+  "description": "Integrated frontend and backend for Patentform",
+  "scripts": {
+    "frontend:install": "npm install --prefix \"patentform-main (1)/patentform-main/Patentform/frontend\"",
+    "frontend:start": "npm run dev --prefix \"patentform-main (1)/patentform-main/Patentform/frontend\"",
+    "backend:start": "cd \"patentform-backend-main/demo\" && mvnw.cmd spring-boot:run",
+    "start": "npx --yes concurrently -n \"frontend,backend\" -c \"blue,green\" \"npm run frontend:start\" \"npm run backend:start\""
+  }
+}

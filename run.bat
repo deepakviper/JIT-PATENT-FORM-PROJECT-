@@ -1,0 +1,3 @@
+@echo off
+echo Starting Patentform Frontend and Backend...
+npm start
