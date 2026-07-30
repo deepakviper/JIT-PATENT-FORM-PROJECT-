@@ -8,6 +8,20 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <script>
+      (function() {
+        const backendUrl = "%VITE_API_URL%";
+        if (backendUrl && !backendUrl.startsWith('%') && backendUrl.trim() !== '') {
+          const originalFetch = window.fetch;
+          window.fetch = function(input, init) {
+            if (typeof input === 'string' && input.startsWith('http://localhost:8080')) {
+              input = input.replace('http://localhost:8080', backendUrl);
+            }
+            return originalFetch(input, init);
+          };
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
