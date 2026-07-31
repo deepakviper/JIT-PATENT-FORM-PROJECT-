@@ -1,5 +1,5 @@
     import React from 'react';
-    import { Sparkles, LogOut } from 'lucide-react';
+    import { Sparkles } from 'lucide-react';
 
     function Header({ user, onLogout }) {
     return (
@@ -38,9 +38,6 @@
                     {user.email} {user.extraPersonsCount > 0 ? `(${user.extraPersonsCount} inventor${user.extraPersonsCount > 1 ? 's' : ''})` : ''}
                   </span>
                 </div>
-                <button className="user-logout-btn" onClick={onLogout} title="Switch User / Sign Out">
-                  <LogOut size={16} />
-                </button>
               </div>
             )}
             <Sparkles className="patent-fillers-icon" />
