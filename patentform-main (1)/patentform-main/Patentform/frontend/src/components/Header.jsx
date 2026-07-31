@@ -27,19 +27,6 @@
             </div>
         </div>
         <div className="header-right">
-            {user && (
-              <div className="user-badge-container">
-                <div className="user-avatar">
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
-                <div className="user-details">
-                  <span className="user-badge-name">{user.name}</span>
-                  <span className="user-badge-email">
-                    {user.email} {user.extraPersonsCount > 0 ? `(${user.extraPersonsCount} inventor${user.extraPersonsCount > 1 ? 's' : ''})` : ''}
-                  </span>
-                </div>
-              </div>
-            )}
             <Sparkles className="patent-fillers-icon" />
             <span className="patent-fillers-text">JIT PATENTEZ</span>
         </div>

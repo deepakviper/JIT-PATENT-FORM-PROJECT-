@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { User, Mail, Users, Sparkles, X, Plus } from 'lucide-react';
+import { User, Users, Sparkles, Plus } from 'lucide-react';
 
 function AdditionalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [coApplicants, setCoApplicants] = useState([]);
-  const [isModalOpen, setIsModalOpen] = useState(false);
 
   // Use a ref to track whether the update was self-triggered to prevent re-render lag
   const isSelfTriggeredRef = useRef(false);
+  const listEndRef = useRef(null);
 
   // Initialize and synchronize state when user changes
   useEffect(() => {
@@ -98,7 +98,11 @@ function AdditionalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
     const newCoApplicants = [...coApplicants, { name: '' }];
     setCoApplicants(newCoApplicants);
     syncChanges(name, email, newCoApplicants);
-    setIsModalOpen(true); // Open modal when a new additional inventor is added
+
+    // Smoothly scroll down so the user sees the newly added inventor
+    setTimeout(() => {
+      listEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 100);
   };
 
   const handleRemoveMember = (index) => {
@@ -190,7 +194,7 @@ function AdditionalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
           </div>
         </div>
 
-        {/* Primary Inventors Header */}
+        {/* Inventors Header */}
         <div style={{
           marginTop: '6px',
           borderTop: '1px solid #F3F4F6',
@@ -200,236 +204,101 @@ function AdditionalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
           alignItems: 'center'
         }}>
           <span style={{ fontSize: '13px', fontWeight: '600', color: '#1F2937', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Users size={16} style={{ color: '#0052cc' }} /> Primary Inventors
+            <Users size={16} style={{ color: '#0052cc' }} /> Inventors
           </span>
         </div>
 
-        {/* List of First 3 Inventors */}
+        {/* List of Inventors */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {coApplicants.slice(0, 3).map((member, index) => (
-            <div key={index} className="form-group">
-              <label className="form-label" htmlFor={`member-name-${index}`} style={{ fontSize: '11px', color: '#4B5563', fontWeight: '600' }}>
-                Inventor #{index + 1} {index === 0 ? '*' : '(Optional)'}
-              </label>
-              <input
-                id={`member-name-${index}`}
-                type="text"
-                className="login-input"
-                style={{
-                  background: '#F9FAFB',
-                  border: '1px solid #D1D5DB',
-                  color: '#1F2937',
-                  paddingLeft: '12px',
-                  paddingRight: '12px',
-                  height: '36px',
-                  fontSize: '13px',
-                  borderRadius: '6px'
+          {coApplicants.map((member, index) => {
+            const isAdditional = index >= 3;
+            return (
+              <div 
+                key={index} 
+                className="form-group"
+                style={{ 
+                  animation: isAdditional ? 'slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '4px'
                 }}
-                placeholder={`Enter inventor #${index + 1} name`}
-                value={member.name || ''}
-                onChange={(e) => handleMemberChange(index, e.target.value)}
-                required={index === 0}
-              />
-            </div>
-          ))}
-        </div>
-
-        {/* Manage/Add buttons */}
-        <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
-          {coApplicants.length < 8 && (
-            <button
-              type="button"
-              onClick={handleAddMember}
-              style={{
-                flex: 1,
-                background: '#0052cc',
-                color: '#FFF',
-                border: 'none',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                fontSize: '12px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-                transition: 'background 0.2s'
-              }}
-            >
-              <Plus size={14} /> Add Inventor
-            </button>
-          )}
-          {coApplicants.length > 3 && (
-            <button
-              type="button"
-              onClick={() => setIsModalOpen(true)}
-              style={{
-                flex: 1,
-                background: '#F3F4F6',
-                color: '#1F2937',
-                border: '1px solid #D1D5DB',
-                padding: '8px 12px',
-                borderRadius: '6px',
-                fontSize: '12px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-                transition: 'background 0.2s'
-              }}
-            >
-              Manage More ({coApplicants.length - 3})
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Additional Inventors Modal */}
-      {isModalOpen && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%',
-          backgroundColor: 'rgba(0, 0, 0, 0.4)',
-          backdropFilter: 'blur(4px)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 9999,
-          animation: 'fadeIn 0.2s ease'
-        }}>
-          <div style={{
-            background: '#FFF',
-            borderRadius: '12px',
-            width: '450px',
-            maxWidth: '90%',
-            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
-            padding: '24px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '16px',
-            border: '1px solid #E5E7EB',
-            animation: 'slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #F3F4F6', paddingBottom: '12px' }}>
-              <span style={{ fontWeight: '600', fontSize: '1.05rem', color: '#1F2937', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Users size={18} style={{ color: '#0052cc' }} /> Additional Inventors
-              </span>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: '4px', borderRadius: '50%' }}
               >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '350px', overflowY: 'auto', paddingRight: '4px' }}>
-              {coApplicants.slice(3).map((member, idx) => {
-                const actualIndex = idx + 3;
-                return (
-                  <div key={actualIndex} style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '8px',
-                    padding: '12px',
-                    backgroundColor: '#F9FAFB',
-                    borderRadius: '8px',
-                    border: '1px solid #E5E7EB'
-                  }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#4B5563', textTransform: 'uppercase' }}>
-                        Inventor #{actualIndex + 1}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveMember(actualIndex)}
-                        style={{
-                          background: 'transparent',
-                          color: '#EF4444',
-                          border: 'none',
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          cursor: 'pointer',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          transition: 'background 0.2s'
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    <input
-                      type="text"
-                      className="login-input"
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label" htmlFor={`member-name-${index}`} style={{ fontSize: '11px', color: '#4B5563', fontWeight: '600' }}>
+                    Inventor #{index + 1} {index === 0 ? '*' : isAdditional ? '' : '(Optional)'}
+                  </label>
+                  {isAdditional && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMember(index)}
                       style={{
-                        background: '#FFF',
-                        border: '1px solid #D1D5DB',
-                        color: '#1F2937',
-                        paddingLeft: '12px',
-                        paddingRight: '12px',
-                        height: '36px',
-                        fontSize: '13px',
-                        borderRadius: '6px'
+                        background: 'transparent',
+                        color: '#EF4444',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        transition: 'background 0.2s'
                       }}
-                      placeholder={`Enter inventor #${actualIndex + 1} name`}
-                      value={member.name || ''}
-                      onChange={(e) => handleMemberChange(actualIndex, e.target.value)}
-                      required
-                    />
-                  </div>
-                );
-              })}
-            </div>
-
-            <div style={{ display: 'flex', gap: '12px', borderTop: '1px solid #F3F4F6', paddingTop: '16px' }}>
-              {coApplicants.length < 8 && (
-                <button
-                  type="button"
-                  onClick={handleAddMember}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+                <input
+                  id={`member-name-${index}`}
+                  type="text"
+                  className="login-input"
                   style={{
-                    flex: 1,
-                    background: '#F3F4F6',
-                    color: '#1F2937',
+                    background: '#F9FAFB',
                     border: '1px solid #D1D5DB',
-                    padding: '10px',
-                    borderRadius: '6px',
+                    color: '#1F2937',
+                    paddingLeft: '12px',
+                    paddingRight: '12px',
+                    height: '36px',
                     fontSize: '13px',
-                    fontWeight: '600',
-                    cursor: 'pointer',
-                    transition: 'background 0.2s'
+                    borderRadius: '6px'
                   }}
-                >
-                  + Add Another
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                style={{
-                  flex: 1,
-                  background: '#0052cc',
-                  color: '#FFF',
-                  border: 'none',
-                  padding: '10px',
-                  borderRadius: '6px',
-                  fontSize: '13px',
-                  fontWeight: '600',
-                  cursor: 'pointer',
-                  transition: 'background 0.2s'
-                }}
-              >
-                Close
-              </button>
-            </div>
-          </div>
+                  placeholder={`Enter inventor #${index + 1} name`}
+                  value={member.name || ''}
+                  onChange={(e) => handleMemberChange(index, e.target.value)}
+                  required={index === 0}
+                />
+              </div>
+            );
+          })}
+          {/* Ref element used for automatic scroll positioning */}
+          <div ref={listEndRef} />
         </div>
-      )}
+
+        {/* Add button */}
+        {coApplicants.length < 8 && (
+          <button
+            type="button"
+            onClick={handleAddMember}
+            style={{
+              background: '#0052cc',
+              color: '#FFF',
+              border: 'none',
+              padding: '8px 12px',
+              borderRadius: '6px',
+              fontSize: '12px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '4px',
+              transition: 'background 0.2s',
+              marginTop: '8px'
+            }}
+          >
+            <Plus size={14} /> Add Inventor
+          </button>
+        )}
+      </div>
     </div>
   );
 }
