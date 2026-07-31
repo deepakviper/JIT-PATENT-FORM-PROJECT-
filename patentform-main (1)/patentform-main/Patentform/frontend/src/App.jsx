@@ -48,7 +48,7 @@ function App() {
       // Loop strictly through checked items only
       for (const formKey of selectedForms) {
         
-        const response = await fetch(`http://localhost:8080/api/patent/download?formType=${formKey}`, {
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/api/patent/download?formType=${formKey}`, {
           method: 'POST',
           headers: { 
             'Content-Type': 'application/json' 
