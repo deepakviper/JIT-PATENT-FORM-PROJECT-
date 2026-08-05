@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home } from 'lucide-react';
+import { Home, User } from 'lucide-react';
 
 function AddressDetailsCard({ previewData, onChange, user, onUserUpdate }) {
   const [houseNo, setHouseNo] = useState('');
@@ -224,16 +224,22 @@ function AddressDetailsCard({ previewData, onChange, user, onUserUpdate }) {
         {/* Principal Name */}
         <div className="form-group" style={{ marginTop: '6px', borderTop: '1px solid #F3F4F6', paddingTop: '12px' }}>
           <label style={labelStyle} htmlFor="addr-principalName">Principal Name *</label>
-          <input
-            id="addr-principalName"
-            type="text"
-            className="login-input"
-            style={inputStyle}
-            placeholder="Enter principal name"
-            value={principalName}
-            onChange={(e) => handleFieldChange('principalName', e.target.value)}
-            required
-          />
+          <div className="input-container">
+            <User className="input-icon" style={{ color: '#9CA3AF' }} size={16} />
+            <input
+              id="addr-principalName"
+              type="text"
+              className="login-input"
+              style={{
+                ...inputStyle,
+                paddingLeft: '38px'
+              }}
+              placeholder="Enter principal name"
+              value={principalName}
+              onChange={(e) => handleFieldChange('principalName', e.target.value)}
+              required
+            />
+          </div>
         </div>
 
         {/* Telephone No. */}
