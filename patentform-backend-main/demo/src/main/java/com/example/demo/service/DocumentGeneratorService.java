@@ -387,21 +387,57 @@ public class DocumentGeneratorService {
         if (data.getApplicant() != null && data.getApplicant().getAddress() != null) {
             PatentFormResponse.AddressDTO sharedAddress = data.getApplicant().getAddress();
 
-            replaceTextInParagraph(paragraph, "{{SERVICE_NAME}}", "Dr. J. VENU GOPALA KRISHNAN");
+            String serviceName = (sharedAddress.getPrincipalName() != null && !sharedAddress.getPrincipalName().isBlank())
+                    ? sharedAddress.getPrincipalName().trim()
+                    : "Dr. J. VENU GOPALA KRISHNAN";
+            replaceTextInParagraph(paragraph, "{{SERVICE_NAME}}", serviceName);
 
-            String fullPostalAddress = "Principal, Jeppiaar Institute of Technology (JIT), "
-                    + (sharedAddress.getStreet() != null ? sharedAddress.getStreet() + ", "
-                            : "Kunnam, Sunguvarchatram, ")
-                    + (sharedAddress.getCity() != null ? sharedAddress.getCity() + ", " : "Sriperumbudur, ")
-                    + (sharedAddress.getState() != null ? sharedAddress.getState() + ", " : "Tamil Nadu, ")
-                    + (sharedAddress.getCountry() != null ? sharedAddress.getCountry() : "India")
-                    + " - " + (sharedAddress.getPincode() != null ? sharedAddress.getPincode() : "631 604");
+            // Construct address, using houseNo if present
+            StringBuilder addressBuilder = new StringBuilder();
+            if (sharedAddress.getHouseNo() != null && !sharedAddress.getHouseNo().isBlank()) {
+                addressBuilder.append(sharedAddress.getHouseNo().trim()).append(", ");
+            } else {
+                addressBuilder.append("Principal, Jeppiaar Institute of Technology (JIT), ");
+            }
+            addressBuilder.append(sharedAddress.getStreet() != null && !sharedAddress.getStreet().isBlank()
+                    ? sharedAddress.getStreet().trim() + ", "
+                    : "Kunnam, Sunguvarchatram, ");
+            addressBuilder.append(sharedAddress.getCity() != null && !sharedAddress.getCity().isBlank()
+                    ? sharedAddress.getCity().trim() + ", "
+                    : "Sriperumbudur, ");
+            addressBuilder.append(sharedAddress.getState() != null && !sharedAddress.getState().isBlank()
+                    ? sharedAddress.getState().trim() + ", "
+                    : "Tamil Nadu, ");
+            addressBuilder.append(sharedAddress.getCountry() != null && !sharedAddress.getCountry().isBlank()
+                    ? sharedAddress.getCountry().trim()
+                    : "India");
+            if (sharedAddress.getPincode() != null && !sharedAddress.getPincode().isBlank()) {
+                addressBuilder.append(" - ").append(sharedAddress.getPincode().trim());
+            } else {
+                addressBuilder.append(" - 631 604");
+            }
+            
+            replaceTextInParagraph(paragraph, "{{SERVICE_ADDRESS}}", addressBuilder.toString());
 
-            replaceTextInParagraph(paragraph, "{{SERVICE_ADDRESS}}", fullPostalAddress);
-            replaceTextInParagraph(paragraph, "{{SERVICE_TEL}}", "+91- 044-27159000");
-            replaceTextInParagraph(paragraph, "{{SERVICE_MOBILE}}", "74012 22007");
-            replaceTextInParagraph(paragraph, "{{SERVICE_FAX}}", "+91- 044-27159006");
-            replaceTextInParagraph(paragraph, "{{SERVICE_EMAIL}}", "principal@jeppiaarinstitute.org");
+            String tel = (sharedAddress.getTelephone() != null && !sharedAddress.getTelephone().isBlank())
+                    ? sharedAddress.getTelephone().trim()
+                    : "+91- 044-27159000";
+            replaceTextInParagraph(paragraph, "{{SERVICE_TEL}}", tel);
+
+            String mobile = (sharedAddress.getMobile() != null && !sharedAddress.getMobile().isBlank())
+                    ? sharedAddress.getMobile().trim()
+                    : "74012 22007";
+            replaceTextInParagraph(paragraph, "{{SERVICE_MOBILE}}", mobile);
+
+            String fax = (sharedAddress.getFax() != null && !sharedAddress.getFax().isBlank())
+                    ? sharedAddress.getFax().trim()
+                    : "+91- 044-27159006";
+            replaceTextInParagraph(paragraph, "{{SERVICE_FAX}}", fax);
+
+            String email = (sharedAddress.getEmail() != null && !sharedAddress.getEmail().isBlank())
+                    ? sharedAddress.getEmail().trim()
+                    : "principal@jeppiaarinstitute.org";
+            replaceTextInParagraph(paragraph, "{{SERVICE_EMAIL}}", email);
         }
 
         // 7. Map Document Metadata Attachments

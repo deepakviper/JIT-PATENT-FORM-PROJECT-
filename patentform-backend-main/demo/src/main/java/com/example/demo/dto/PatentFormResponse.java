@@ -33,6 +33,12 @@ public class PatentFormResponse {
         private String state = "";
         private String country = "";
         private String pincode = "";
+        private String houseNo = "";
+        private String principalName = "";
+        private String telephone = "";
+        private String mobile = "";
+        private String fax = "";
+        private String email = "";
     }
 
     @Data

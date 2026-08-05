@@ -4,13 +4,27 @@ import UploadCard from './components/UploadCard';
 import PreviewDownloadCard from './components/PreviewDownloadCard';
 import PatentFormsCard from './components/PatentFormsCard';
 import AdditionalDetailsCard from './components/AdditionalDetailsCard';
+import AddressDetailsCard from './components/AddressDetailsCard';
 
 function App() {
   // Track parsed patent data (initialized with default metadata to allow downloads instantly)
   const [parsedData, setParsedData] = useState({
     applicant: {
       name: '',
-      email: ''
+      email: '',
+      address: {
+        houseNo: '',
+        street: '',
+        city: '',
+        state: '',
+        country: '',
+        pincode: '',
+        principalName: '',
+        telephone: '',
+        mobile: '',
+        fax: '',
+        email: ''
+      }
     },
     inventors: []
   });
@@ -21,7 +35,20 @@ function App() {
   const [user, setUser] = useState({
     name: '',
     email: '',
-    additionalMembers: []
+    additionalMembers: [],
+    address: {
+      houseNo: '',
+      street: '',
+      city: '',
+      state: '',
+      country: '',
+      pincode: '',
+      principalName: '',
+      telephone: '',
+      mobile: '',
+      fax: '',
+      email: ''
+    }
   });
 
   // --- DOWNLOAD ACTION ---
@@ -98,12 +125,38 @@ function App() {
     setUser({
       name: '',
       email: '',
-      additionalMembers: []
+      additionalMembers: [],
+      address: {
+        houseNo: '',
+        street: '',
+        city: '',
+        state: '',
+        country: '',
+        pincode: '',
+        principalName: '',
+        telephone: '',
+        mobile: '',
+        fax: '',
+        email: ''
+      }
     });
     setParsedData({
       applicant: {
         name: '',
-        email: ''
+        email: '',
+        address: {
+          houseNo: '',
+          street: '',
+          city: '',
+          state: '',
+          country: '',
+          pincode: '',
+          principalName: '',
+          telephone: '',
+          mobile: '',
+          fax: '',
+          email: ''
+        }
       },
       inventors: []
     });
@@ -112,14 +165,45 @@ function App() {
 
   const handleDataParsed = (data) => {
     if (data) {
+      const parsedAddress = data.applicant?.address || {};
+
+      setUser(prevUser => {
+        const updatedAddress = {
+          ...prevUser.address,
+          street: prevUser.address.street || parsedAddress.street || '',
+          city: prevUser.address.city || parsedAddress.city || '',
+          state: prevUser.address.state || parsedAddress.state || '',
+          country: prevUser.address.country || parsedAddress.country || '',
+          pincode: prevUser.address.pincode || parsedAddress.pincode || ''
+        };
+        return {
+          ...prevUser,
+          address: updatedAddress
+        };
+      });
+
       // Merge: strictly use user's form inputs for applicant & inventors.
       // Other details (Title, Abstract, Claims, Description, Attachments) come from the parsed document.
       const mergedData = {
         ...data,
         applicant: {
           ...data.applicant,
-          name: user?.name || '',
-          email: user?.email || ''
+          name: user?.name || data.applicant?.name || '',
+          email: user?.email || data.applicant?.email || '',
+          address: {
+            ...data.applicant?.address,
+            houseNo: user?.address?.houseNo || '',
+            street: user?.address?.street || data.applicant?.address?.street || '',
+            city: user?.address?.city || data.applicant?.address?.city || '',
+            state: user?.address?.state || data.applicant?.address?.state || '',
+            country: user?.address?.country || data.applicant?.address?.country || '',
+            pincode: user?.address?.pincode || data.applicant?.address?.pincode || '',
+            principalName: user?.address?.principalName || '',
+            telephone: user?.address?.telephone || '',
+            mobile: user?.address?.mobile || '',
+            fax: user?.address?.fax || '',
+            email: user?.address?.email || ''
+          }
         },
         inventors: (user?.additionalMembers || []).map(m => ({
           name: m.name,
@@ -133,7 +217,20 @@ function App() {
       setParsedData({
         applicant: {
           name: user?.name || '',
-          email: user?.email || ''
+          email: user?.email || '',
+          address: {
+            houseNo: user?.address?.houseNo || '',
+            street: user?.address?.street || '',
+            city: user?.address?.city || '',
+            state: user?.address?.state || '',
+            country: user?.address?.country || '',
+            pincode: user?.address?.pincode || '',
+            principalName: user?.address?.principalName || '',
+            telephone: user?.address?.telephone || '',
+            mobile: user?.address?.mobile || '',
+            fax: user?.address?.fax || '',
+            email: user?.address?.email || ''
+          }
         },
         inventors: (user?.additionalMembers || []).map(m => ({
           name: m.name,
@@ -148,7 +245,7 @@ function App() {
     <div>
       <Header user={user} onLogout={handleResetWorkspace} />
       <div className="main-container">
-        <div className="left-column">
+        <div className="column-card-container col-1">
           <AdditionalDetailsCard
             previewData={parsedData}
             onChange={handleDataParsed}
@@ -156,7 +253,15 @@ function App() {
             onUserUpdate={setUser}
           />
         </div>
-        <div className="center-column">
+        <div className="column-card-container col-2">
+          <AddressDetailsCard
+            previewData={parsedData}
+            onChange={handleDataParsed}
+            user={user}
+            onUserUpdate={setUser}
+          />
+        </div>
+        <div className="column-card-container col-3" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <UploadCard onDataParsed={handleDataParsed} />
           <PreviewDownloadCard 
             previewData={parsedData} 
@@ -165,7 +270,7 @@ function App() {
             selectedForms={selectedForms} 
           />
         </div>
-        <div className="right-column">
+        <div className="column-card-container col-4">
           <PatentFormsCard 
             selectedForms={selectedForms} 
             setSelectedForms={setSelectedForms} 
