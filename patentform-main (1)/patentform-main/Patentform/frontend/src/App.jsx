@@ -5,6 +5,7 @@ import PreviewDownloadCard from './components/PreviewDownloadCard';
 import PatentFormsCard from './components/PatentFormsCard';
 import AdditionalDetailsCard from './components/AdditionalDetailsCard';
 import AddressDetailsCard from './components/AddressDetailsCard';
+import PrincipalDetailsCard from './components/PrincipalDetailsCard';
 
 function App() {
   // Track parsed patent data (initialized with default metadata to allow downloads instantly)
@@ -253,8 +254,14 @@ function App() {
             onUserUpdate={setUser}
           />
         </div>
-        <div className="column-card-container col-2">
+        <div className="column-card-container col-2" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <AddressDetailsCard
+            previewData={parsedData}
+            onChange={handleDataParsed}
+            user={user}
+            onUserUpdate={setUser}
+          />
+          <PrincipalDetailsCard
             previewData={parsedData}
             onChange={handleDataParsed}
             user={user}
