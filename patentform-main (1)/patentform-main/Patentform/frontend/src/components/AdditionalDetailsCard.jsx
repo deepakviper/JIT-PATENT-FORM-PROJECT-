@@ -211,14 +211,14 @@ function AdditionalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
         {/* List of Inventors */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
           {/* First 3 inventors in one row */}
-          <div style={{ display: 'flex', gap: '12px', width: '100%', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
             {coApplicants.slice(0, 3).map((member, index) => (
               <div 
                 key={index} 
                 className="form-group"
                 style={{ 
-                  flex: '1 1 calc(33.333% - 8px)',
-                  minWidth: '120px',
+                  flex: 1,
+                  minWidth: 0,
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '4px'
