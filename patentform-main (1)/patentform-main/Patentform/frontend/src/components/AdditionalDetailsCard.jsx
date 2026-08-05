@@ -210,23 +210,43 @@ function AdditionalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
 
         {/* List of Inventors */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-          {/* First 3 inventors in one row */}
-          <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
-            {coApplicants.slice(0, 3).map((member, index) => (
+          {coApplicants.map((member, index) => {
+            const isAdditional = index >= 3;
+            return (
               <div 
                 key={index} 
                 className="form-group"
                 style={{ 
-                  flex: 1,
-                  minWidth: 0,
+                  animation: isAdditional ? 'slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)' : 'none',
                   display: 'flex',
                   flexDirection: 'column',
                   gap: '4px'
                 }}
               >
-                <label className="form-label" htmlFor={`member-name-${index}`} style={{ fontSize: '11px', color: '#4B5563', fontWeight: '600', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  Inventor #{index + 1} {index === 0 ? '*' : '(Optional)'}
-                </label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label" htmlFor={`member-name-${index}`} style={{ fontSize: '12px', color: '#4B5563', fontWeight: '600' }}>
+                    Inventor #{index + 1} {index === 0 ? '*' : isAdditional ? '' : '(Optional)'}
+                  </label>
+                  {isAdditional && (
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveMember(index)}
+                      style={{
+                        background: 'transparent',
+                        color: '#EF4444',
+                        border: 'none',
+                        fontSize: '11px',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        transition: 'background 0.2s'
+                      }}
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
                 <input
                   id={`member-name-${index}`}
                   type="text"
@@ -239,8 +259,7 @@ function AdditionalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
                     paddingRight: '12px',
                     height: '36px',
                     fontSize: '13px',
-                    borderRadius: '6px',
-                    width: '100%'
+                    borderRadius: '6px'
                   }}
                   placeholder={`Enter inventor #${index + 1} name`}
                   value={member.name || ''}
@@ -248,99 +267,37 @@ function AdditionalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
                   required={index === 0}
                 />
               </div>
-            ))}
-          </div>
-
-          {/* Additional inventors, starting from index 3 */}
-          {coApplicants.length > 3 && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {coApplicants.slice(3).map((member, idx) => {
-                const index = idx + 3;
-                return (
-                  <div 
-                    key={index} 
-                    className="form-group"
-                    style={{ 
-                      animation: 'slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '4px'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <label className="form-label" htmlFor={`member-name-${index}`} style={{ fontSize: '11px', color: '#4B5563', fontWeight: '600' }}>
-                        Inventor #{index + 1}
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveMember(index)}
-                        style={{
-                          background: 'transparent',
-                          color: '#EF4444',
-                          border: 'none',
-                          fontSize: '11px',
-                          fontWeight: '600',
-                          cursor: 'pointer',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          transition: 'background 0.2s'
-                        }}
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    <input
-                      id={`member-name-${index}`}
-                      type="text"
-                      className="login-input"
-                      style={{
-                        background: '#F9FAFB',
-                        border: '1px solid #D1D5DB',
-                        color: '#1F2937',
-                        paddingLeft: '12px',
-                        paddingRight: '12px',
-                        height: '36px',
-                        fontSize: '13px',
-                        borderRadius: '6px'
-                      }}
-                      placeholder={`Enter inventor #${index + 1} name`}
-                      value={member.name || ''}
-                      onChange={(e) => handleMemberChange(index, e.target.value)}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
+            );
+          })}
           {/* Ref element used for automatic scroll positioning */}
           <div ref={listEndRef} />
         </div>
 
         {/* Add button */}
         {coApplicants.length < 8 && (
-          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '12px' }}>
-            <button
-              type="button"
-              onClick={handleAddMember}
-              style={{
-                background: '#0052cc',
-                color: '#FFF',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '6px',
-                fontSize: '12px',
-                fontWeight: '600',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '4px',
-                transition: 'background 0.2s'
-              }}
-            >
-              <Plus size={14} /> Add Inventor
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={handleAddMember}
+            style={{
+              background: '#0052cc',
+              color: '#FFF',
+              border: 'none',
+              padding: '10px 16px',
+              borderRadius: '6px',
+              fontSize: '13px',
+              fontWeight: '600',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '4px',
+              transition: 'background 0.2s',
+              marginTop: '8px',
+              width: '100%'
+            }}
+          >
+            <Plus size={14} /> Add Inventor
+          </button>
         )}
       </div>
     </div>
