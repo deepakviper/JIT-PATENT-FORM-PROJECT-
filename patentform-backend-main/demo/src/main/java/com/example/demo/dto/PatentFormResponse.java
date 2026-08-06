@@ -22,6 +22,7 @@ public class PatentFormResponse {
         private String name = "";
         private String nationality = "Indian";
         private String country = "India";
+        private String email = "";
         private AddressDTO address = new AddressDTO();
     }
 

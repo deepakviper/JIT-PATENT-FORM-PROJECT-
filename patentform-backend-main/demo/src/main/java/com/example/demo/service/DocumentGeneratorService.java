@@ -408,9 +408,12 @@ public class DocumentGeneratorService {
         if (data.getApplicant() != null && data.getApplicant().getAddress() != null) {
             PatentFormResponse.AddressDTO sharedAddress = data.getApplicant().getAddress();
 
-            String serviceName = (sharedAddress.getPrincipalName() != null)
-                    ? sharedAddress.getPrincipalName().trim()
-                    : "";
+            String serviceName = "";
+            if (data.getApplicant() != null && data.getApplicant().getEmail() != null && !data.getApplicant().getEmail().isBlank()) {
+                serviceName = data.getApplicant().getEmail().trim();
+            } else if (sharedAddress.getPrincipalName() != null && !sharedAddress.getPrincipalName().isBlank()) {
+                serviceName = sharedAddress.getPrincipalName().trim();
+            }
             replaceTextInParagraph(paragraph, "{{SERVICE_NAME}}", serviceName);
 
             // Construct address dynamically without default fallback strings
