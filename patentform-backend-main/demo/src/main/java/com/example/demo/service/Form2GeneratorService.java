@@ -43,7 +43,7 @@ public class Form2GeneratorService {
                 List<XWPFParagraph> parasCopy = new ArrayList<>(document.getParagraphs());
                 for (XWPFParagraph paragraph : parasCopy) {
                     String text = paragraph.getText();
-                    if (text.contains("5.CLAIMS") || text.contains("Dated this") || text.contains("6.ABSTRACT")) {
+                    if (text.contains("6.ABSTRACT")) {
                         paragraph.setPageBreak(true);
                     }
                     replacePlaceholdersInParagraphWithLayout(document, paragraph, replacements);
