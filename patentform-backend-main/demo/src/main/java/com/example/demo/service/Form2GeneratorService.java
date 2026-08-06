@@ -4,6 +4,7 @@ import com.example.demo.dto.PatentFormResponse;
 import org.apache.poi.xwpf.usermodel.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.apache.xmlbeans.XmlCursor;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
@@ -38,8 +39,10 @@ public class Form2GeneratorService {
 
             // 1. Process standalone paragraphs
             if (document.getParagraphs() != null) {
-                for (XWPFParagraph paragraph : document.getParagraphs()) {
-                    replacePlaceholdersInParagraph(paragraph, replacements);
+                // Loop through a copy since we will be inserting new paragraphs
+                List<XWPFParagraph> parasCopy = new ArrayList<>(document.getParagraphs());
+                for (XWPFParagraph paragraph : parasCopy) {
+                    replacePlaceholdersInParagraphWithLayout(document, paragraph, replacements);
                 }
             }
 
@@ -48,13 +51,17 @@ public class Form2GeneratorService {
                 for (XWPFTable table : document.getTables()) {
                     for (XWPFTableRow row : table.getRows()) {
                         for (XWPFTableCell cell : row.getTableCells()) {
-                            for (XWPFParagraph paragraph : cell.getParagraphs()) {
-                                replacePlaceholdersInParagraph(paragraph, replacements);
+                            List<XWPFParagraph> cellParasCopy = new ArrayList<>(cell.getParagraphs());
+                            for (XWPFParagraph paragraph : cellParasCopy) {
+                                replacePlaceholdersInParagraphWithLayout(document, paragraph, replacements);
                             }
                         }
                     }
                 }
             }
+
+            // 3. Append saved drawings
+            appendSavedDrawings(document);
 
             try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
                 document.write(bos);
@@ -182,6 +189,172 @@ public class Form2GeneratorService {
                 if (i < lines.length - 1) {
                     newRun.addCarriageReturn();
                 }
+            }
+        }
+    }
+
+    private void replacePlaceholdersInParagraphWithLayout(XWPFDocument document, XWPFParagraph paragraph, Map<String, String> replacements) {
+        if (paragraph == null) return;
+        List<XWPFRun> runs = paragraph.getRuns();
+        if (runs == null || runs.isEmpty()) return;
+
+        StringBuilder consolidatedText = new StringBuilder();
+        for (XWPFRun run : runs) {
+            String text = run.getText(0);
+            if (text != null) {
+                consolidatedText.append(text);
+            }
+        }
+
+        String paragraphText = consolidatedText.toString();
+
+        if (paragraphText.contains("{description}")) {
+            replaceWithMultipleParagraphs(document, paragraph, replacements.get("{description}"));
+            return;
+        } else if (paragraphText.contains("{claims}")) {
+            replaceWithMultipleParagraphs(document, paragraph, replacements.get("{claims}"));
+            return;
+        } else if (paragraphText.contains("{abstract}")) {
+            replaceWithMultipleParagraphs(document, paragraph, replacements.get("{abstract}"));
+            return;
+        }
+
+        replacePlaceholdersInParagraph(paragraph, replacements);
+    }
+
+    private void replaceWithMultipleParagraphs(XWPFDocument document, XWPFParagraph targetPara, String text) {
+        if (text == null) text = "";
+        String[] lines = text.split("\n");
+        XWPFParagraph currentPara = targetPara;
+        
+        while (currentPara.getRuns().size() > 0) {
+            currentPara.removeRun(0);
+        }
+
+        XmlCursor cursor = currentPara.getCTP().newCursor();
+        boolean firstLineWritten = false;
+        
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (line.isEmpty()) {
+                continue;
+            }
+            
+            XWPFParagraph activePara;
+            if (!firstLineWritten) {
+                activePara = currentPara;
+                firstLineWritten = true;
+            } else {
+                cursor.toEndToken();
+                activePara = document.insertNewParagraph(cursor);
+                activePara.setStyle(targetPara.getStyle());
+                activePara.setSpacingAfter(targetPara.getSpacingAfter());
+                activePara.setSpacingBefore(targetPara.getSpacingBefore());
+            }
+            
+            XWPFRun run = activePara.createRun();
+            run.setFontFamily("Times New Roman");
+            run.setFontSize(12);
+            
+            if (isHeading(line)) {
+                run.setBold(true);
+            }
+            
+            run.setText(line);
+            currentPara = activePara;
+            cursor = currentPara.getCTP().newCursor();
+        }
+    }
+
+    private boolean isHeading(String line) {
+        String trimmed = line.trim();
+        if (trimmed.length() > 80) {
+            return false;
+        }
+        
+        String clean = trimmed.replaceAll("^[0-9.\\s]+", "").replaceAll("[:.\\s]+$", "").trim();
+        if (clean.isEmpty()) {
+            return false;
+        }
+        
+        boolean allCaps = clean.matches("^[A-Z0-9\\s&(),/\\-]+$") && clean.chars().anyMatch(Character::isLetter);
+        if (allCaps) {
+            return true;
+        }
+        
+        String lower = clean.toLowerCase();
+        return lower.equals("field of the invention")
+                || lower.equals("field of invention")
+                || lower.equals("background of the invention")
+                || lower.equals("background of invention")
+                || lower.equals("object of the invention")
+                || lower.equals("summary of the invention")
+                || lower.equals("summary of invention")
+                || lower.equals("detailed description")
+                || lower.equals("detailed description of the invention")
+                || lower.equals("brief description of drawings")
+                || lower.equals("brief description of the drawings")
+                || lower.equals("claims")
+                || lower.equals("abstract");
+    }
+
+    private void appendSavedDrawings(XWPFDocument document) {
+        java.io.File dir = new java.io.File("temp_images");
+        if (!dir.exists()) {
+            return;
+        }
+        java.io.File[] files = dir.listFiles();
+        if (files == null || files.length == 0) {
+            return;
+        }
+
+        java.util.Arrays.sort(files, (f1, f2) -> f1.getName().compareTo(f2.getName()));
+
+        XWPFParagraph headingPara = document.createParagraph();
+        headingPara.setSpacingBefore(480);
+        headingPara.setSpacingAfter(240);
+        XWPFRun headingRun = headingPara.createRun();
+        headingRun.setFontFamily("Times New Roman");
+        headingRun.setFontSize(14);
+        headingRun.setBold(true);
+        headingRun.setText("DRAWINGS / FIGURES");
+
+        for (java.io.File f : files) {
+            String name = f.getName().toLowerCase();
+            int picType = XWPFDocument.PICTURE_TYPE_PNG;
+            if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
+                picType = XWPFDocument.PICTURE_TYPE_JPEG;
+            } else if (name.endsWith(".gif")) {
+                picType = XWPFDocument.PICTURE_TYPE_GIF;
+            }
+
+            XWPFParagraph imgPara = document.createParagraph();
+            imgPara.setAlignment(ParagraphAlignment.CENTER);
+            imgPara.setSpacingAfter(240);
+            
+            XWPFRun imgRun = imgPara.createRun();
+            
+            try (java.io.InputStream is = new java.io.FileInputStream(f)) {
+                // Word drawing size standard dimensions (400px wide, 300px high in EMUs)
+                imgRun.addPicture(is, picType, f.getName(), 3810000, 2857500);
+            } catch (Exception e) {
+                logger.error("Failed to insert drawing: " + f.getName(), e);
+            }
+
+            XWPFParagraph captionPara = document.createParagraph();
+            captionPara.setAlignment(ParagraphAlignment.CENTER);
+            captionPara.setSpacingAfter(240);
+            XWPFRun captionRun = captionPara.createRun();
+            captionRun.setFontFamily("Times New Roman");
+            captionRun.setFontSize(10);
+            captionRun.setItalic(true);
+            
+            String figureNumber = f.getName().replaceAll("^image_", "").replaceAll("\\.[a-zA-Z0-9]+$", "");
+            try {
+                int num = Integer.parseInt(figureNumber) + 1;
+                captionRun.setText("Figure " + num);
+            } catch (Exception e) {
+                captionRun.setText(f.getName());
             }
         }
     }

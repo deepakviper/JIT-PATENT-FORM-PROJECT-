@@ -6,6 +6,9 @@ import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import org.apache.poi.xwpf.usermodel.XWPFPictureData;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
@@ -21,6 +24,7 @@ public class DocumentParserService {
              XWPFDocument document = new XWPFDocument(is);
              XWPFWordExtractor extractor = new XWPFWordExtractor(document)) {
             fullText = extractor.getText();
+            extractAndSavePictures(document);
         }
 
         PatentFormResponse response = new PatentFormResponse();
@@ -484,5 +488,31 @@ public class DocumentParserService {
             }
         }
         return names;
+    }
+
+    private void extractAndSavePictures(XWPFDocument document) {
+        File dir = new File("temp_images");
+        if (dir.exists()) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    f.delete();
+                }
+            }
+        } else {
+            dir.mkdirs();
+        }
+
+        List<XWPFPictureData> pictures = document.getAllPictures();
+        for (int i = 0; i < pictures.size(); i++) {
+            XWPFPictureData pic = pictures.get(i);
+            String ext = pic.suggestFileExtension();
+            File outFile = new File(dir, "image_" + i + "." + ext);
+            try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                fos.write(pic.getData());
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
     }
 }
