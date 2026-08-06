@@ -42,6 +42,10 @@ public class Form2GeneratorService {
                 // Loop through a copy since we will be inserting new paragraphs
                 List<XWPFParagraph> parasCopy = new ArrayList<>(document.getParagraphs());
                 for (XWPFParagraph paragraph : parasCopy) {
+                    String text = paragraph.getText();
+                    if (text.contains("5.CLAIMS") || text.contains("Dated this") || text.contains("6.ABSTRACT")) {
+                        paragraph.setPageBreak(true);
+                    }
                     replacePlaceholdersInParagraphWithLayout(document, paragraph, replacements);
                 }
             }
@@ -134,6 +138,55 @@ public class Form2GeneratorService {
                 ? data.getAbstractText()
                 : "No abstract provided.";
         map.put("{abstract}", abstractTextValue);
+
+        // 6. Dynamic Signatures and Date Section
+        java.time.LocalDate today = java.time.LocalDate.now();
+        int dayVal = today.getDayOfMonth();
+        String suffixVal;
+        if (dayVal >= 11 && dayVal <= 13) {
+            suffixVal = "th";
+        } else {
+            switch (dayVal % 10) {
+                case 1:  suffixVal = "st"; break;
+                case 2:  suffixVal = "nd"; break;
+                case 3:  suffixVal = "rd"; break;
+                default: suffixVal = "th"; break;
+            }
+        }
+        String formattedDate = String.format("%02d%s day of %s, %d", dayVal, suffixVal, today.format(java.time.format.DateTimeFormatter.ofPattern("MMMM")), today.getYear());
+        map.put("{date}", formattedDate);
+
+        String principalName = "";
+        if (data.getApplicant() != null) {
+            if (data.getApplicant().getEmail() != null && !data.getApplicant().getEmail().isBlank()) {
+                principalName = data.getApplicant().getEmail().trim();
+            } else if (data.getApplicant().getAddress() != null && data.getApplicant().getAddress().getPrincipalName() != null && !data.getApplicant().getAddress().getPrincipalName().isBlank()) {
+                principalName = data.getApplicant().getAddress().getPrincipalName().trim();
+            } else if (data.getApplicant().getName() != null && !data.getApplicant().getName().isBlank()) {
+                principalName = data.getApplicant().getName().trim();
+            }
+        }
+        map.put("{principal}", principalName);
+
+        List<PatentFormResponse.InventorDTO> inventors = data.getInventors();
+        String inv1 = "";
+        String inv2 = "";
+        String inv3 = "";
+        if (inventors != null) {
+            if (inventors.size() > 0 && inventors.get(0).getName() != null) {
+                inv1 = inventors.get(0).getName().trim();
+            }
+            if (inventors.size() > 1 && inventors.get(1).getName() != null) {
+                inv2 = inventors.get(1).getName().trim();
+            }
+            if (inventors.size() > 2 && inventors.get(2).getName() != null) {
+                inv3 = inventors.get(2).getName().trim();
+            }
+        }
+        map.put("{inventor 1}", inv1);
+        map.put("{inventor1}", inv1);
+        map.put("{inventor2}", inv2);
+        map.put("{inventor3}", inv3);
 
         return map;
     }
