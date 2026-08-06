@@ -45,6 +45,13 @@ public class Form3GeneratorService {
                 for (XWPFTable table : document.getTables()) {
                     for (XWPFTableRow row : table.getRows()) {
                         for (XWPFTableCell cell : row.getTableCells()) {
+                            String cellText = cell.getText().toLowerCase();
+                            if (cellText.contains("controller of patents") && !cellText.contains("undertake")) {
+                                String branch = replacements.get("{patentOfficeBranch}");
+                                cleanControllerAddressCell(cell, branch);
+                                continue;
+                            }
+                            
                             for (XWPFParagraph paragraph : cell.getParagraphs()) {
                                 replacePlaceholdersInParagraph(paragraph, replacements);
                             }
@@ -142,6 +149,30 @@ public class Form3GeneratorService {
         String paragraphText = consolidatedText.toString();
         boolean replacedAny = false;
 
+        // 1. Clean up and format the Date block
+        if (paragraphText.contains("Dated this") || paragraphText.toLowerCase().contains("dated this")) {
+            String day = replacements.get("{currentDay}");
+            String month = replacements.get("{currentMonth}");
+            String year = replacements.get("{currentYear}");
+            if (day != null && month != null && year != null) {
+                if (year.length() == 2) {
+                    year = "20" + year;
+                }
+                
+                // Replace 20{currentYear} first to avoid 202026 duplication
+                paragraphText = paragraphText.replace("20{currentYear}", year);
+                paragraphText = paragraphText.replace("{currentDay}", day);
+                paragraphText = paragraphText.replace("{currentMonth}", month);
+                paragraphText = paragraphText.replace("{currentYear}", year);
+                
+                // Replace raw underscore line: "Dated this______day of_______20"
+                paragraphText = paragraphText.replaceAll("(?i)Dated this\\s*[_\\s]+day of\\s*[_\\s]+20\\d*", "Dated this " + day + " day of " + month + ", " + year);
+                paragraphText = paragraphText.replaceAll("(?i)Dated this\\s*[_\\s]*day of\\s*[_\\s]*20", "Dated this " + day + " day of " + month + ", " + year);
+                replacedAny = true;
+            }
+        }
+
+        // 2. Apply standard map replacements
         for (Map.Entry<String, String> entry : replacements.entrySet()) {
             if (paragraphText.contains(entry.getKey())) {
                 paragraphText = paragraphText.replace(entry.getKey(), entry.getValue() != null ? entry.getValue() : "");
@@ -182,5 +213,40 @@ public class Form3GeneratorService {
                 }
             }
         }
+    }
+
+    private void cleanControllerAddressCell(XWPFTableCell cell, String branch) {
+        if (branch == null || branch.isEmpty()) {
+            branch = "Chennai";
+        }
+        
+        while (cell.getParagraphs().size() > 1) {
+            cell.removeParagraph(1);
+        }
+        
+        XWPFParagraph p1 = cell.getParagraphs().get(0);
+        while (p1.getRuns().size() > 0) {
+            p1.removeRun(0);
+        }
+        XWPFRun r1 = p1.createRun();
+        r1.setFontFamily("Times New Roman");
+        r1.setFontSize(12);
+        r1.setText("To");
+        
+        XWPFParagraph p2 = cell.addParagraph();
+        p2.setSpacingBefore(0);
+        p2.setSpacingAfter(0);
+        XWPFRun r2 = p2.createRun();
+        r2.setFontFamily("Times New Roman");
+        r2.setFontSize(12);
+        r2.setText("The Controller of Patents");
+        
+        XWPFParagraph p3 = cell.addParagraph();
+        p3.setSpacingBefore(0);
+        p3.setSpacingAfter(0);
+        XWPFRun r3 = p3.createRun();
+        r3.setFontFamily("Times New Roman");
+        r3.setFontSize(12);
+        r3.setText("The Patent Office, at " + branch);
     }
 }
