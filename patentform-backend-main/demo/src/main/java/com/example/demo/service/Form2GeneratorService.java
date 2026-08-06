@@ -80,7 +80,8 @@ public class Form2GeneratorService {
             PatentFormResponse.ApplicantDTO applicant = data.getApplicant();
             map.put("{applicantName}", applicant.getName() != null ? applicant.getName() : "");
             map.put("{applicantNationality}", applicant.getNationality() != null ? applicant.getNationality() : "Indian");
-
+            if (applicant.getAddress() != null) {
+                PatentFormResponse.AddressDTO applicantAddress = applicant.getAddress();
                 List<String> parts = new ArrayList<>();
                 if (applicantAddress.getHouseNo() != null && !applicantAddress.getHouseNo().isBlank()) parts.add(applicantAddress.getHouseNo().trim());
                 if (applicantAddress.getStreet() != null && !applicantAddress.getStreet().isBlank()) parts.add(applicantAddress.getStreet().trim());
