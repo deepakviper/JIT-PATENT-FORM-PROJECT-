@@ -9,7 +9,9 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -80,11 +82,24 @@ public class Form28GeneratorService {
             applicantNationality = data.getApplicant().getNationality() != null ? data.getApplicant().getNationality() : "Indian";
             if (data.getApplicant().getAddress() != null) {
                 PatentFormResponse.AddressDTO addr = data.getApplicant().getAddress();
-                applicantAddressStr = (addr.getStreet() != null && !addr.getStreet().isEmpty() ? addr.getStreet() + ", " : "")
-                        + (addr.getCity() != null && !addr.getCity().isEmpty() ? addr.getCity() + ", " : "")
-                        + (addr.getState() != null && !addr.getState().isEmpty() ? addr.getState() + ", " : "")
-                        + (addr.getCountry() != null && !addr.getCountry().isEmpty() ? addr.getCountry() : "India")
-                        + " - " + (addr.getPincode() != null && !addr.getPincode().isEmpty() ? addr.getPincode() : "");
+                List<String> parts = new ArrayList<>();
+                if (addr.getHouseNo() != null && !addr.getHouseNo().isBlank()) parts.add(addr.getHouseNo().trim());
+                if (addr.getStreet() != null && !addr.getStreet().isBlank()) parts.add(addr.getStreet().trim());
+                if (addr.getAreaLocality() != null && !addr.getAreaLocality().isBlank()) parts.add(addr.getAreaLocality().trim());
+                if (addr.getVillageTown() != null && !addr.getVillageTown().isBlank()) parts.add(addr.getVillageTown().trim());
+                if (addr.getCity() != null && !addr.getCity().isBlank()) parts.add(addr.getCity().trim());
+                if (addr.getDistrict() != null && !addr.getDistrict().isBlank()) parts.add(addr.getDistrict().trim());
+                if (addr.getState() != null && !addr.getState().isBlank()) parts.add(addr.getState().trim());
+                if (addr.getCountry() != null && !addr.getCountry().isBlank()) parts.add(addr.getCountry().trim());
+                
+                applicantAddressStr = String.join(", ", parts);
+                if (addr.getPincode() != null && !addr.getPincode().isBlank()) {
+                    if (!applicantAddressStr.isEmpty()) {
+                        applicantAddressStr += " - " + addr.getPincode().trim();
+                    } else {
+                        applicantAddressStr = addr.getPincode().trim();
+                    }
+                }
             }
         }
         String detailsStr = applicantAddressStr + ", Nationality: " + applicantNationality;

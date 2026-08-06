@@ -39,6 +39,8 @@ public class PatentFormResponse {
         private String mobile = "";
         private String fax = "";
         private String email = "";
+        private String areaLocality = "";
+        private String villageTown = "";
     }
 
     @Data

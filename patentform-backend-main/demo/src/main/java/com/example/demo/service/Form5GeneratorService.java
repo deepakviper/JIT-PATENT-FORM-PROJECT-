@@ -11,6 +11,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -93,20 +94,28 @@ public class Form5GeneratorService {
             nationalitiesOnly = String.join(", ", uniqueNationalities);
 
             // Dynamically compile the complete structural institutional address line
-            String sharedAddressStr = "N/A";
+            String sharedAddressStr = "";
             if (data.getApplicant() != null && data.getApplicant().getAddress() != null) {
                 PatentFormResponse.AddressDTO addr = data.getApplicant().getAddress();
 
-                // 💡 FIX: Explicitly prepend the institution title before stitching the structural address parts
-                sharedAddressStr = "Jeppiaar Institute of Technology (JIT), "
-                        + (addr.getStreet() != null && !addr.getStreet().isEmpty() ? addr.getStreet() : "Kunnam, Sunguvarchatram")
-                        + (addr.getCity() != null ? ", " + addr.getCity() : ", Sriperumbudur")
-                        + (addr.getState() != null ? ", " + addr.getState() : ", Tamil Nadu")
-                        + (addr.getPincode() != null ? " - " + addr.getPincode() : " - 631604")
-                        + (addr.getCountry() != null ? ", " + addr.getCountry() : ", India");
-
-                // Clean up any double-comma scenarios safely
-                sharedAddressStr = sharedAddressStr.replaceAll(",\\s*,", ",").trim();
+                List<String> parts = new ArrayList<>();
+                if (addr.getHouseNo() != null && !addr.getHouseNo().isBlank()) parts.add(addr.getHouseNo().trim());
+                if (addr.getStreet() != null && !addr.getStreet().isBlank()) parts.add(addr.getStreet().trim());
+                if (addr.getAreaLocality() != null && !addr.getAreaLocality().isBlank()) parts.add(addr.getAreaLocality().trim());
+                if (addr.getVillageTown() != null && !addr.getVillageTown().isBlank()) parts.add(addr.getVillageTown().trim());
+                if (addr.getCity() != null && !addr.getCity().isBlank()) parts.add(addr.getCity().trim());
+                if (addr.getDistrict() != null && !addr.getDistrict().isBlank()) parts.add(addr.getDistrict().trim());
+                if (addr.getState() != null && !addr.getState().isBlank()) parts.add(addr.getState().trim());
+                if (addr.getCountry() != null && !addr.getCountry().isBlank()) parts.add(addr.getCountry().trim());
+                
+                sharedAddressStr = String.join(", ", parts);
+                if (addr.getPincode() != null && !addr.getPincode().isBlank()) {
+                    if (!sharedAddressStr.isEmpty()) {
+                        sharedAddressStr += " - " + addr.getPincode().trim();
+                    } else {
+                        sharedAddressStr = addr.getPincode().trim();
+                    }
+                }
             }
 
             addressesOnly = sharedAddressStr;

@@ -326,12 +326,12 @@ public class DocumentGeneratorService {
             if (applicant.getAddress() != null) {
                 PatentFormResponse.AddressDTO address = applicant.getAddress();
 
-                replaceTextInParagraph(paragraph, "{{HOUSE_NO}}", "Department of CSE");
-                replaceTextInParagraph(paragraph, "{{STREET}}", address.getStreet());
-                replaceTextInParagraph(paragraph, "{{CITY}}", address.getCity());
-                replaceTextInParagraph(paragraph, "{{STATE}}", address.getState());
-                replaceTextInParagraph(paragraph, "{{COUNTRY}}", address.getCountry());
-                replaceTextInParagraph(paragraph, "{{PINCODE}}", address.getPincode());
+                replaceTextInParagraph(paragraph, "{{HOUSE_NO}}", address.getHouseNo() != null ? address.getHouseNo().trim() : "");
+                replaceTextInParagraph(paragraph, "{{STREET}}", address.getStreet() != null ? address.getStreet().trim() : "");
+                replaceTextInParagraph(paragraph, "{{CITY}}", address.getCity() != null ? address.getCity().trim() : "");
+                replaceTextInParagraph(paragraph, "{{STATE}}", address.getState() != null ? address.getState().trim() : "");
+                replaceTextInParagraph(paragraph, "{{COUNTRY}}", address.getCountry() != null ? address.getCountry().trim() : "");
+                replaceTextInParagraph(paragraph, "{{PINCODE}}", address.getPincode() != null ? address.getPincode().trim() : "");
             }
         }
 
@@ -375,68 +375,71 @@ public class DocumentGeneratorService {
         // address in this form.
         if (data.getApplicant() != null && data.getApplicant().getAddress() != null) {
             PatentFormResponse.AddressDTO addr = data.getApplicant().getAddress();
-            replaceTextInParagraph(paragraph, "{{INV_HOUSE_NO}}", "Department of CSE");
-            replaceTextInParagraph(paragraph, "{{INV_STREET}}", addr.getStreet());
-            replaceTextInParagraph(paragraph, "{{INV_CITY}}", addr.getCity());
-            replaceTextInParagraph(paragraph, "{{INV_STATE}}", addr.getState());
-            replaceTextInParagraph(paragraph, "{{INV_COUNTRY_ADDR}}", addr.getCountry());
-            replaceTextInParagraph(paragraph, "{{INV_PIN}}", addr.getPincode());
+            replaceTextInParagraph(paragraph, "{{INV_HOUSE_NO}}", addr.getHouseNo() != null ? addr.getHouseNo().trim() : "");
+            replaceTextInParagraph(paragraph, "{{INV_STREET}}", addr.getStreet() != null ? addr.getStreet().trim() : "");
+            replaceTextInParagraph(paragraph, "{{INV_CITY}}", addr.getCity() != null ? addr.getCity().trim() : "");
+            replaceTextInParagraph(paragraph, "{{INV_STATE}}", addr.getState() != null ? addr.getState().trim() : "");
+            replaceTextInParagraph(paragraph, "{{INV_COUNTRY_ADDR}}", addr.getCountry() != null ? addr.getCountry().trim() : "");
+            replaceTextInParagraph(paragraph, "{{INV_PIN}}", addr.getPincode() != null ? addr.getPincode().trim() : "");
         }
 
         // 6. Map Section 7: Address for Service of Applicant in India
         if (data.getApplicant() != null && data.getApplicant().getAddress() != null) {
             PatentFormResponse.AddressDTO sharedAddress = data.getApplicant().getAddress();
 
-            String serviceName = (sharedAddress.getPrincipalName() != null && !sharedAddress.getPrincipalName().isBlank())
+            String serviceName = (sharedAddress.getPrincipalName() != null)
                     ? sharedAddress.getPrincipalName().trim()
-                    : "Dr. J. VENU GOPALA KRISHNAN";
+                    : "";
             replaceTextInParagraph(paragraph, "{{SERVICE_NAME}}", serviceName);
 
-            // Construct address, using houseNo if present
-            StringBuilder addressBuilder = new StringBuilder();
+            // Construct address dynamically without default fallback strings
+            List<String> addressParts = new ArrayList<>();
             if (sharedAddress.getHouseNo() != null && !sharedAddress.getHouseNo().isBlank()) {
-                addressBuilder.append(sharedAddress.getHouseNo().trim()).append(", ");
-            } else {
-                addressBuilder.append("Principal, Jeppiaar Institute of Technology (JIT), ");
+                addressParts.add(sharedAddress.getHouseNo().trim());
             }
-            addressBuilder.append(sharedAddress.getStreet() != null && !sharedAddress.getStreet().isBlank()
-                    ? sharedAddress.getStreet().trim() + ", "
-                    : "Kunnam, Sunguvarchatram, ");
-            addressBuilder.append(sharedAddress.getCity() != null && !sharedAddress.getCity().isBlank()
-                    ? sharedAddress.getCity().trim() + ", "
-                    : "Sriperumbudur, ");
-            addressBuilder.append(sharedAddress.getState() != null && !sharedAddress.getState().isBlank()
-                    ? sharedAddress.getState().trim() + ", "
-                    : "Tamil Nadu, ");
-            addressBuilder.append(sharedAddress.getCountry() != null && !sharedAddress.getCountry().isBlank()
-                    ? sharedAddress.getCountry().trim()
-                    : "India");
-            if (sharedAddress.getPincode() != null && !sharedAddress.getPincode().isBlank()) {
-                addressBuilder.append(" - ").append(sharedAddress.getPincode().trim());
-            } else {
-                addressBuilder.append(" - 631 604");
+            if (sharedAddress.getStreet() != null && !sharedAddress.getStreet().isBlank()) {
+                addressParts.add(sharedAddress.getStreet().trim());
+            }
+            if (sharedAddress.getAreaLocality() != null && !sharedAddress.getAreaLocality().isBlank()) {
+                addressParts.add(sharedAddress.getAreaLocality().trim());
+            }
+            if (sharedAddress.getVillageTown() != null && !sharedAddress.getVillageTown().isBlank()) {
+                addressParts.add(sharedAddress.getVillageTown().trim());
+            }
+            if (sharedAddress.getCity() != null && !sharedAddress.getCity().isBlank()) {
+                addressParts.add(sharedAddress.getCity().trim());
+            }
+            if (sharedAddress.getDistrict() != null && !sharedAddress.getDistrict().isBlank()) {
+                addressParts.add(sharedAddress.getDistrict().trim());
+            }
+            if (sharedAddress.getState() != null && !sharedAddress.getState().isBlank()) {
+                addressParts.add(sharedAddress.getState().trim());
+            }
+            if (sharedAddress.getCountry() != null && !sharedAddress.getCountry().isBlank()) {
+                addressParts.add(sharedAddress.getCountry().trim());
             }
             
-            replaceTextInParagraph(paragraph, "{{SERVICE_ADDRESS}}", addressBuilder.toString());
+            String fullPostalAddress = String.join(", ", addressParts);
+            if (sharedAddress.getPincode() != null && !sharedAddress.getPincode().isBlank()) {
+                if (!fullPostalAddress.isEmpty()) {
+                    fullPostalAddress += " - " + sharedAddress.getPincode().trim();
+                } else {
+                    fullPostalAddress = sharedAddress.getPincode().trim();
+                }
+            }
 
-            String tel = (sharedAddress.getTelephone() != null && !sharedAddress.getTelephone().isBlank())
-                    ? sharedAddress.getTelephone().trim()
-                    : "+91- 044-27159000";
+            replaceTextInParagraph(paragraph, "{{SERVICE_ADDRESS}}", fullPostalAddress);
+
+            String tel = (sharedAddress.getTelephone() != null) ? sharedAddress.getTelephone().trim() : "";
             replaceTextInParagraph(paragraph, "{{SERVICE_TEL}}", tel);
 
-            String mobile = (sharedAddress.getMobile() != null && !sharedAddress.getMobile().isBlank())
-                    ? sharedAddress.getMobile().trim()
-                    : "74012 22007";
+            String mobile = (sharedAddress.getMobile() != null) ? sharedAddress.getMobile().trim() : "";
             replaceTextInParagraph(paragraph, "{{SERVICE_MOBILE}}", mobile);
 
-            String fax = (sharedAddress.getFax() != null && !sharedAddress.getFax().isBlank())
-                    ? sharedAddress.getFax().trim()
-                    : "+91- 044-27159006";
+            String fax = (sharedAddress.getFax() != null) ? sharedAddress.getFax().trim() : "";
             replaceTextInParagraph(paragraph, "{{SERVICE_FAX}}", fax);
 
-            String email = (sharedAddress.getEmail() != null && !sharedAddress.getEmail().isBlank())
-                    ? sharedAddress.getEmail().trim()
-                    : "principal@jeppiaarinstitute.org";
+            String email = (sharedAddress.getEmail() != null) ? sharedAddress.getEmail().trim() : "";
             replaceTextInParagraph(paragraph, "{{SERVICE_EMAIL}}", email);
         }
 

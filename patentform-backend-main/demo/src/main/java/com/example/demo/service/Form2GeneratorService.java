@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -80,20 +81,27 @@ public class Form2GeneratorService {
             map.put("{applicantName}", applicant.getName() != null ? applicant.getName() : "");
             map.put("{applicantNationality}", applicant.getNationality() != null ? applicant.getNationality() : "Indian");
 
-            if (applicant.getAddress() != null) {
-                PatentFormResponse.AddressDTO applicantAddress = applicant.getAddress();
-                String baseInstitution = "Department of CSE, Jeppiaar Institute of Technology, ";
-
-                String fullAddress = baseInstitution
-                        + (applicantAddress.getStreet() != null && !applicantAddress.getStreet().isEmpty() ? applicantAddress.getStreet() + ", " : "")
-                        + (applicantAddress.getCity() != null && !applicantAddress.getCity().isEmpty() ? applicantAddress.getCity() + ", " : "")
-                        + (applicantAddress.getState() != null && !applicantAddress.getState().isEmpty() ? applicantAddress.getState() + ", " : "")
-                        + (applicantAddress.getCountry() != null && !applicantAddress.getCountry().isEmpty() ? applicantAddress.getCountry() : "India")
-                        + " - " + (applicantAddress.getPincode() != null && !applicantAddress.getPincode().isEmpty() ? applicantAddress.getPincode() : "631604");
-
+                List<String> parts = new ArrayList<>();
+                if (applicantAddress.getHouseNo() != null && !applicantAddress.getHouseNo().isBlank()) parts.add(applicantAddress.getHouseNo().trim());
+                if (applicantAddress.getStreet() != null && !applicantAddress.getStreet().isBlank()) parts.add(applicantAddress.getStreet().trim());
+                if (applicantAddress.getAreaLocality() != null && !applicantAddress.getAreaLocality().isBlank()) parts.add(applicantAddress.getAreaLocality().trim());
+                if (applicantAddress.getVillageTown() != null && !applicantAddress.getVillageTown().isBlank()) parts.add(applicantAddress.getVillageTown().trim());
+                if (applicantAddress.getCity() != null && !applicantAddress.getCity().isBlank()) parts.add(applicantAddress.getCity().trim());
+                if (applicantAddress.getDistrict() != null && !applicantAddress.getDistrict().isBlank()) parts.add(applicantAddress.getDistrict().trim());
+                if (applicantAddress.getState() != null && !applicantAddress.getState().isBlank()) parts.add(applicantAddress.getState().trim());
+                if (applicantAddress.getCountry() != null && !applicantAddress.getCountry().isBlank()) parts.add(applicantAddress.getCountry().trim());
+                
+                String fullAddress = String.join(", ", parts);
+                if (applicantAddress.getPincode() != null && !applicantAddress.getPincode().isBlank()) {
+                    if (!fullAddress.isEmpty()) {
+                        fullAddress += " - " + applicantAddress.getPincode().trim();
+                    } else {
+                        fullAddress = applicantAddress.getPincode().trim();
+                    }
+                }
                 map.put("{applicantAddress}", fullAddress);
             } else {
-                map.put("{applicantAddress}", "Department of CSE, Jeppiaar Institute of Technology, India - 631604");
+                map.put("{applicantAddress}", "");
             }
         } else {
             map.put("{applicantName}", "");
