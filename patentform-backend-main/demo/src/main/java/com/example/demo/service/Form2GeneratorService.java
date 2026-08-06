@@ -231,7 +231,6 @@ public class Form2GeneratorService {
             currentPara.removeRun(0);
         }
 
-        XmlCursor cursor = currentPara.getCTP().newCursor();
         boolean firstLineWritten = false;
         
         for (int i = 0; i < lines.length; i++) {
@@ -245,8 +244,12 @@ public class Form2GeneratorService {
                 activePara = currentPara;
                 firstLineWritten = true;
             } else {
-                cursor.toEndToken();
-                activePara = document.insertNewParagraph(cursor);
+                XmlCursor cursor = currentPara.getCTP().newCursor();
+                if (cursor.toNextSibling()) {
+                    activePara = document.insertNewParagraph(cursor);
+                } else {
+                    activePara = document.createParagraph();
+                }
                 activePara.setStyle(targetPara.getStyle());
                 activePara.setSpacingAfter(targetPara.getSpacingAfter());
                 activePara.setSpacingBefore(targetPara.getSpacingBefore());
@@ -262,7 +265,6 @@ public class Form2GeneratorService {
             
             run.setText(line);
             currentPara = activePara;
-            cursor = currentPara.getCTP().newCursor();
         }
     }
 
