@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Phone } from 'lucide-react';
+import { Phone, User } from 'lucide-react';
 
 function PrincipalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
+  const [principalName, setPrincipalName] = useState('');
   const [telephone, setTelephone] = useState('');
   const [mobile, setMobile] = useState('');
   const [fax, setFax] = useState('');
@@ -15,6 +16,7 @@ function PrincipalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
       return;
     }
 
+    setPrincipalName(user?.email || '');
     const addr = user?.address || {};
     setTelephone(addr.telephone || '');
     setMobile(addr.mobile || '');
@@ -33,8 +35,11 @@ function PrincipalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
       email: updatedFields.hasOwnProperty('email') ? updatedFields.email : email,
     };
 
+    const newPrincipalName = updatedFields.hasOwnProperty('principalName') ? updatedFields.principalName : principalName;
+
     const updatedUser = {
       ...user,
+      email: newPrincipalName,
       address: mergedAddress
     };
 
@@ -44,6 +49,7 @@ function PrincipalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
         ...previewData,
         applicant: {
           ...previewData.applicant,
+          email: newPrincipalName,
           address: {
             ...previewData.applicant?.address,
             ...mergedAddress
@@ -54,7 +60,7 @@ function PrincipalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
       updatedData = {
         applicant: {
           name: user?.name || '',
-          email: user?.email || '',
+          email: newPrincipalName,
           address: mergedAddress
         },
         inventors: (user?.additionalMembers || []).map(m => ({
@@ -74,7 +80,8 @@ function PrincipalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
   };
 
   const handleFieldChange = (fieldName, val) => {
-    if (fieldName === 'telephone') setTelephone(val);
+    if (fieldName === 'principalName') setPrincipalName(val);
+    else if (fieldName === 'telephone') setTelephone(val);
     else if (fieldName === 'mobile') setMobile(val);
     else if (fieldName === 'fax') setFax(val);
     else if (fieldName === 'email') setEmail(val);
@@ -98,7 +105,8 @@ function PrincipalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
     color: '#4B5563',
     fontWeight: '600',
     fontSize: '12px',
-    marginBottom: '4px'
+    marginBottom: '4px',
+    display: 'block'
   };
 
   return (
@@ -110,6 +118,27 @@ function PrincipalDetailsCard({ previewData, onChange, user, onUserUpdate }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
         
+        {/* Principal Name */}
+        <div className="form-group">
+          <label style={labelStyle} htmlFor="addr-principalName">Principal Name *</label>
+          <div className="input-container">
+            <User className="input-icon" style={{ color: '#9CA3AF' }} size={16} />
+            <input
+              id="addr-principalName"
+              type="text"
+              className="login-input"
+              style={{
+                ...inputStyle,
+                paddingLeft: '38px'
+              }}
+              placeholder="Enter principal name"
+              value={principalName}
+              onChange={(e) => handleFieldChange('principalName', e.target.value)}
+              required
+            />
+          </div>
+        </div>
+
         {/* Telephone No. */}
         <div className="form-group">
           <label style={labelStyle} htmlFor="addr-telephone">Telephone No.</label>

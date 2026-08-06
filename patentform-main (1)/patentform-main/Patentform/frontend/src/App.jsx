@@ -4,7 +4,6 @@ import UploadCard from './components/UploadCard';
 import PreviewDownloadCard from './components/PreviewDownloadCard';
 import PatentFormsCard from './components/PatentFormsCard';
 import AdditionalDetailsCard from './components/AdditionalDetailsCard';
-import AddressDetailsCard from './components/AddressDetailsCard';
 import PrincipalDetailsCard from './components/PrincipalDetailsCard';
 import InventorsCard from './components/InventorsCard';
 
@@ -247,14 +246,8 @@ function App() {
     <div>
       <Header user={user} onLogout={handleResetWorkspace} />
       <div className="main-container">
-        <div className="column-card-container col-1" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        <div className="column-card-container col-1">
           <AdditionalDetailsCard
-            previewData={parsedData}
-            onChange={handleDataParsed}
-            user={user}
-            onUserUpdate={setUser}
-          />
-          <AddressDetailsCard
             previewData={parsedData}
             onChange={handleDataParsed}
             user={user}
