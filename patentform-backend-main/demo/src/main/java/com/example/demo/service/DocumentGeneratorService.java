@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -313,6 +315,25 @@ public class DocumentGeneratorService {
         // 1. General Meta Tokens
         replaceTextInParagraph(paragraph, "{{TITLE}}", data.getTitleOfInvention());
         replaceTextInParagraph(paragraph, "{{APPLICATION_TYPE}}", data.getApplicationType());
+
+        // Replace hardcoded "09th July 2026" with today's date dynamically
+        if (paragraph.getText().contains("09th July 2026")) {
+            LocalDate today = LocalDate.now();
+            int day = today.getDayOfMonth();
+            String suffix;
+            if (day >= 11 && day <= 13) {
+                suffix = "th";
+            } else {
+                switch (day % 10) {
+                    case 1:  suffix = "st"; break;
+                    case 2:  suffix = "nd"; break;
+                    case 3:  suffix = "rd"; break;
+                    default: suffix = "th"; break;
+                }
+            }
+            String formattedApplyDate = String.format("%02d%s %s %d", day, suffix, today.format(DateTimeFormatter.ofPattern("MMMM")), today.getYear());
+            replaceTextInParagraph(paragraph, "09th July 2026", formattedApplyDate);
+        }
 
         // 2. Map Applicant Placeholders
         if (data.getApplicant() != null) {

@@ -187,14 +187,27 @@ public class DocumentParserService {
             address.setState(cleanParts.get(size - 1));
             address.setCity(cleanParts.get(size - 2));
 
-            StringBuilder streetBuilder = new StringBuilder();
-            for (int i = 0; i < size - 2; i++) {
-                if (!streetBuilder.isEmpty()) {
-                    streetBuilder.append(", ");
+            String firstPart = cleanParts.get(0).trim();
+            if (firstPart.matches("^[0-9]+.*") || firstPart.toLowerCase().startsWith("no.") || firstPart.contains("/")) {
+                address.setHouseNo(firstPart);
+                StringBuilder streetBuilder = new StringBuilder();
+                for (int i = 1; i < size - 2; i++) {
+                    if (!streetBuilder.isEmpty()) {
+                        streetBuilder.append(", ");
+                    }
+                    streetBuilder.append(cleanParts.get(i));
                 }
-                streetBuilder.append(cleanParts.get(i));
+                address.setStreet(streetBuilder.toString());
+            } else {
+                StringBuilder streetBuilder = new StringBuilder();
+                for (int i = 0; i < size - 2; i++) {
+                    if (!streetBuilder.isEmpty()) {
+                        streetBuilder.append(", ");
+                    }
+                    streetBuilder.append(cleanParts.get(i));
+                }
+                address.setStreet(streetBuilder.toString());
             }
-            address.setStreet(streetBuilder.toString());
         } else if (size == 2) {
             address.setState(cleanParts.get(1));
             address.setCity(cleanParts.get(0));
