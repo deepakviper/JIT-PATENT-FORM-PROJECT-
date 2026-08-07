@@ -551,7 +551,8 @@ public class DocumentGeneratorService {
         // Retain original template font family, size, color, and weights
         XWPFRun baseRun = runs.get(0);
         String fontName = baseRun.getFontFamily() != null ? baseRun.getFontFamily() : "Arial";
-        int fontSize = baseRun.getFontSize() > 0 ? baseRun.getFontSize() : 11;
+        Double fontVal = baseRun.getFontSizeAsDouble();
+        int fontSize = (fontVal != null && fontVal > 0) ? fontVal.intValue() : 11;
         boolean isTableCell = paragraph.getBody() instanceof XWPFTableCell;
         if (isTableCell && fontSize > 9) {
             fontSize = 9; // Reduce font size inside tables to avoid cutting off
@@ -578,42 +579,6 @@ public class DocumentGeneratorService {
 
             // Add hard line breaks for multiline segments safely without breaking cell
             // structures
-            if (i < lineParts.length - 1) {
-                newRun.addBreak();
-            }
-        }
-    }
-
-    private void overrideParagraphText(XWPFParagraph paragraph, String newText) {
-        List<XWPFRun> runs = paragraph.getRuns();
-        if (runs == null || runs.isEmpty())
-            return;
-            
-        XWPFRun baseRun = runs.get(0);
-        String fontName = baseRun.getFontFamily() != null ? baseRun.getFontFamily() : "Arial";
-        int fontSize = baseRun.getFontSize() > 0 ? baseRun.getFontSize() : 11;
-        boolean isTableCell = paragraph.getBody() instanceof XWPFTableCell;
-        if (isTableCell && fontSize > 9) {
-            fontSize = 9; // Reduce font size inside tables to avoid cutting off
-        }
-        boolean isBold = baseRun.isBold();
-        String color = baseRun.getColor();
-
-        for (int i = runs.size() - 1; i >= 0; i--) {
-            paragraph.removeRun(i);
-        }
-
-        String[] lineParts = newText.split("\n");
-        for (int i = 0; i < lineParts.length; i++) {
-            XWPFRun newRun = paragraph.createRun();
-            newRun.setText(lineParts[i]);
-            newRun.setFontFamily(fontName);
-            if (fontSize > 0)
-                newRun.setFontSize(fontSize);
-            newRun.setBold(isBold);
-            if (color != null)
-                newRun.setColor(color);
-
             if (i < lineParts.length - 1) {
                 newRun.addBreak();
             }
