@@ -312,27 +312,70 @@ public class DocumentGeneratorService {
             return;
         }
 
+        // Generate dynamic apply date
+        LocalDate today = LocalDate.now();
+        int day = today.getDayOfMonth();
+        String suffix;
+        if (day >= 11 && day <= 13) {
+            suffix = "th";
+        } else {
+            switch (day % 10) {
+                case 1:  suffix = "st"; break;
+                case 2:  suffix = "nd"; break;
+                case 3:  suffix = "rd"; break;
+                default: suffix = "th"; break;
+            }
+        }
+        String formattedApplyDate = String.format("%02d%s %s %d", day, suffix, today.format(DateTimeFormatter.ofPattern("MMMM")), today.getYear());
+
         // 1. General Meta Tokens
         replaceTextInParagraph(paragraph, "{{TITLE}}", data.getTitleOfInvention());
         replaceTextInParagraph(paragraph, "{{APPLICATION_TYPE}}", data.getApplicationType());
 
         // Replace hardcoded "09th July 2026" with today's date dynamically
-        if (paragraph.getText().contains("09th July 2026")) {
-            LocalDate today = LocalDate.now();
-            int day = today.getDayOfMonth();
-            String suffix;
-            if (day >= 11 && day <= 13) {
-                suffix = "th";
-            } else {
-                switch (day % 10) {
-                    case 1:  suffix = "st"; break;
-                    case 2:  suffix = "nd"; break;
-                    case 3:  suffix = "rd"; break;
-                    default: suffix = "th"; break;
-                }
+        replaceTextInParagraph(paragraph, "09th July 2026", formattedApplyDate);
+
+        // Fill date/sign/controller placeholders dynamically in paragraph text
+        String paragraphText = paragraph.getText().trim();
+
+        // A. Handle "Dated this……day of……20……"
+        if (paragraphText.contains("Dated this") && paragraphText.contains("day of") && paragraphText.contains("20")) {
+            replaceTextInParagraph(paragraph, paragraph.getText(), "Dated this " + formattedApplyDate);
+        }
+
+        // B. Handle "Signature:" and "Name:" in Row 64
+        if (paragraphText.equals("Signature:")) {
+            replaceTextInParagraph(paragraph, "Signature:", "Signature:");
+        }
+        if (paragraphText.equals("Name:")) {
+            String applicantName = (data.getApplicant() != null) ? data.getApplicant().getName() : "";
+            replaceTextInParagraph(paragraph, "Name:", "Name: " + applicantName);
+        }
+
+        // C. Handle "To," / "The Controller of Patents" / "The Patent Office, at..."
+        if (paragraphText.startsWith("The Patent Office, at")) {
+            replaceTextInParagraph(paragraph, paragraph.getText(), "The Patent Office, at Chennai.");
+        }
+
+        // D. Handle Date & Signatures in Declarations (Row 54, Row 55)
+        if (paragraphText.equals("Date")) {
+            replaceTextInParagraph(paragraph, "Date", "Date: " + formattedApplyDate);
+        }
+        if (paragraphText.equals("Signature(s)")) {
+            replaceTextInParagraph(paragraph, "Signature(s)", "Signature(s):");
+        }
+        if (paragraphText.contains("(c) Name(s)") && !paragraphText.contains("of the signatory")) {
+            String inventorNames = "";
+            if (data.getInventors() != null && !data.getInventors().isEmpty()) {
+                inventorNames = data.getInventors().stream()
+                        .map(inv -> inv.getName())
+                        .collect(java.util.stream.Collectors.joining(", "));
             }
-            String formattedApplyDate = String.format("%02d%s %s %d", day, suffix, today.format(DateTimeFormatter.ofPattern("MMMM")), today.getYear());
-            replaceTextInParagraph(paragraph, "09th July 2026", formattedApplyDate);
+            replaceTextInParagraph(paragraph, paragraph.getText(), "(c) Name(s): " + inventorNames);
+        }
+        if (paragraphText.contains("(c) Name(s)of the signatory")) {
+            String applicantName = (data.getApplicant() != null) ? data.getApplicant().getName() : "";
+            replaceTextInParagraph(paragraph, paragraph.getText(), "(c) Name(s) of the signatory: " + applicantName);
         }
 
         // 2. Map Applicant Placeholders
@@ -530,6 +573,38 @@ public class DocumentGeneratorService {
 
             // Add hard line breaks for multiline segments safely without breaking cell
             // structures
+            if (i < lineParts.length - 1) {
+                newRun.addBreak();
+            }
+        }
+    }
+
+    private void overrideParagraphText(XWPFParagraph paragraph, String newText) {
+        List<XWPFRun> runs = paragraph.getRuns();
+        if (runs == null || runs.isEmpty())
+            return;
+            
+        XWPFRun baseRun = runs.get(0);
+        String fontName = baseRun.getFontFamily() != null ? baseRun.getFontFamily() : "Arial";
+        int fontSize = baseRun.getFontSize() > 0 ? baseRun.getFontSize() : 11;
+        boolean isBold = baseRun.isBold();
+        String color = baseRun.getColor();
+
+        for (int i = runs.size() - 1; i >= 0; i--) {
+            paragraph.removeRun(i);
+        }
+
+        String[] lineParts = newText.split("\n");
+        for (int i = 0; i < lineParts.length; i++) {
+            XWPFRun newRun = paragraph.createRun();
+            newRun.setText(lineParts[i]);
+            newRun.setFontFamily(fontName);
+            if (fontSize > 0)
+                newRun.setFontSize(fontSize);
+            newRun.setBold(isBold);
+            if (color != null)
+                newRun.setColor(color);
+
             if (i < lineParts.length - 1) {
                 newRun.addBreak();
             }
