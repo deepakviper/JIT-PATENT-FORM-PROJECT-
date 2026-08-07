@@ -23,10 +23,10 @@ public class Form5GeneratorService {
     private static final Logger logger = LoggerFactory.getLogger(Form5GeneratorService.class);
 
     public byte[] generateForm5(PatentFormResponse data) {
-        ClassPathResource resource = new ClassPathResource("Form-[5].docx");
+        ClassPathResource resource = new ClassPathResource("FORM 5.docx");
 
         if (!resource.exists()) {
-            logger.error("❌ CRITICAL: Form-[5].docx was NOT found inside src/main/resources/");
+            logger.error("❌ CRITICAL: FORM 5.docx was NOT found inside src/main/resources/");
             return new byte[0];
         }
 
