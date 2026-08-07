@@ -354,7 +354,8 @@ public class DocumentGeneratorService {
 
         // C. Handle "To," / "The Controller of Patents" / "The Patent Office, at..."
         if (paragraphText.startsWith("The Patent Office, at")) {
-            replaceTextInParagraph(paragraph, paragraph.getText(), "The Patent Office, at Chennai.");
+            String branch = PatentOfficeHelper.determineBranch(data);
+            replaceTextInParagraph(paragraph, paragraph.getText(), "The Patent Office, at " + branch + ".");
         }
 
         // D. Handle Date & Signatures in Declarations (Row 54, Row 55)
@@ -551,6 +552,10 @@ public class DocumentGeneratorService {
         XWPFRun baseRun = runs.get(0);
         String fontName = baseRun.getFontFamily() != null ? baseRun.getFontFamily() : "Arial";
         int fontSize = baseRun.getFontSize() > 0 ? baseRun.getFontSize() : 11;
+        boolean isTableCell = paragraph.getBody() instanceof XWPFTableCell;
+        if (isTableCell && fontSize > 9) {
+            fontSize = 9; // Reduce font size inside tables to avoid cutting off
+        }
         boolean isBold = baseRun.isBold();
         String color = baseRun.getColor();
 
@@ -587,6 +592,10 @@ public class DocumentGeneratorService {
         XWPFRun baseRun = runs.get(0);
         String fontName = baseRun.getFontFamily() != null ? baseRun.getFontFamily() : "Arial";
         int fontSize = baseRun.getFontSize() > 0 ? baseRun.getFontSize() : 11;
+        boolean isTableCell = paragraph.getBody() instanceof XWPFTableCell;
+        if (isTableCell && fontSize > 9) {
+            fontSize = 9; // Reduce font size inside tables to avoid cutting off
+        }
         boolean isBold = baseRun.isBold();
         String color = baseRun.getColor();
 

@@ -78,7 +78,7 @@ public class Form9GeneratorService {
         map.put("{currentDay}", String.valueOf(today.getDayOfMonth()));
         map.put("{currentMonth}", today.format(DateTimeFormatter.ofPattern("MMMM")));
         map.put("{currentYear}", String.valueOf(today.getYear()));
-        map.put("{patentOfficeBranch}", "Chennai");
+        map.put("{patentOfficeBranch}", PatentOfficeHelper.determineBranch(data));
 
         String applicantAddressStr = "";
         String applicantNationality = "Indian";

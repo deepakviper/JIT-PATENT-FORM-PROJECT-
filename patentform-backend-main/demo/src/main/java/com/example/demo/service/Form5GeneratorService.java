@@ -142,7 +142,7 @@ public class Form5GeneratorService {
             }
         }
         map.put("{signatureName}", signName);
-        map.put("{patentOfficeBranch}", "Chennai");
+        map.put("{patentOfficeBranch}", PatentOfficeHelper.determineBranch(data));
 
         return map;
     }

@@ -74,7 +74,7 @@ public class Form28GeneratorService {
         map.put("{currentYear}",
                 String.valueOf(today.getYear()));
 
-        map.put("{patentOfficeBranch}", "Chennai");
+        map.put("{patentOfficeBranch}", PatentOfficeHelper.determineBranch(data));
 
         String applicantAddressStr = "";
         String applicantNationality = "Indian";
