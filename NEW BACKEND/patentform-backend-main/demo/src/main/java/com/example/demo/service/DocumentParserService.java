@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.function.Predicate;
 
 @Service
 public class DocumentParserService {
@@ -45,22 +46,31 @@ public class DocumentParserService {
             }
             System.out.println("================================================");
 
-            // ✅ Extract each section as cleaned XML
+            // ✅ Extract each section as cleaned XML using robust normalized predicates
             abstractXml = extractSectionXml(
                     document,
-                    Pattern.compile("(?i)^\\s*ABSTRACT\\s*:?\\s*$"),
-                    Pattern.compile("(?i)^\\s*DESCRIPTION\\s*:?\\s*$")
+                    "ABSTRACT",
+                    "ABSTRACT",
+                    "DESCRIPTION",
+                    this::isAbstractHeader,
+                    this::isDescriptionHeader
             );
 
             descriptionXml = extractSectionXml(
                     document,
-                    Pattern.compile("(?i)^\\s*DESCRIPTION\\s*:?\\s*$"),
-                    Pattern.compile("(?i)^\\s*(CLAIMS|WE CLAIM|I CLAIM)\\s*:?\\s*$")
+                    "DESCRIPTION",
+                    "DESCRIPTION",
+                    "CLAIMS",
+                    this::isDescriptionHeader,
+                    this::isClaimsHeader
             );
 
             claimsXml = extractSectionXml(
                     document,
-                    Pattern.compile("(?i)^\\s*(CLAIMS|WE CLAIM|I CLAIM)\\s*:?\\s*$"),
+                    "CLAIMS",
+                    "CLAIMS",
+                    null,
+                    this::isClaimsHeader,
                     null
             );
         }
@@ -142,7 +152,56 @@ public class DocumentParserService {
     // Rich XML section extraction with cleaning
     // ------------------------------------------------------------------
 
-    private String extractSectionXml(XWPFDocument document, Pattern startPattern, Pattern endPattern) {
+    private String normalizeHeading(String text) {
+        if (text == null) return "";
+        // 1. Convert to lowercase
+        String normalized = text.toLowerCase();
+        // 2. Remove anything in parentheses (e.g. "(See section...)" or "(to be given...)")
+        normalized = normalized.replaceAll("\\(.*?\\)", "");
+        // 3. Remove punctuation like colons, brackets, dots, or hyphens
+        normalized = normalized.replaceAll("[:\\[\\]\\.\\-]", " ");
+        // 4. Collapse multiple spaces
+        normalized = normalized.replaceAll("\\s+", " ").trim();
+        // 5. Remove common leading numbers (e.g. "4 ", "5 ", "6 ", "1. ", "i ", "iii ")
+        normalized = normalized.replaceAll("^(?:\\d+|[ivxldcm]+)\\s*", "").trim();
+        return normalized;
+    }
+
+    private boolean isAbstractHeader(String text) {
+        String norm = normalizeHeading(text);
+        return norm.length() < 120 && norm.startsWith("abstract");
+    }
+
+    private boolean isDescriptionHeader(String text) {
+        String norm = normalizeHeading(text);
+        return norm.length() < 120 && (
+            norm.equals("description") 
+            || norm.equals("detailed description") 
+            || norm.equals("specification") 
+            || norm.startsWith("description of")
+            || norm.startsWith("detailed description of")
+        );
+    }
+
+    private boolean isClaimsHeader(String text) {
+        String norm = normalizeHeading(text);
+        return norm.length() < 120 && (
+            norm.startsWith("claims") 
+            || norm.startsWith("we claim") 
+            || norm.startsWith("i claim") 
+            || norm.startsWith("what we claim") 
+            || norm.startsWith("what i claim")
+        );
+    }
+
+    private String extractSectionXml(
+            XWPFDocument document, 
+            String sectionName, 
+            String startPatternDesc, 
+            String endPatternDesc, 
+            Predicate<String> startPredicate, 
+            Predicate<String> endPredicate) {
+        
         List<IBodyElement> elements = document.getBodyElements();
         if (elements == null || elements.isEmpty()) return "";
 
@@ -150,7 +209,11 @@ public class DocumentParserService {
         StringBuilder xmlBuilder = new StringBuilder();
         String DELIMITER = "|||ELEMENT_SEPARATOR|||";
 
-        System.out.println("🔍 Running extractSectionXml with delimiter");
+        System.out.println("[extractSectionXml]");
+        System.out.println("Section: " + sectionName);
+        System.out.println("Start pattern: " + startPatternDesc);
+        System.out.println("End pattern: " + (endPatternDesc != null ? endPatternDesc : "None"));
+
         int captured = 0;
 
         for (IBodyElement el : elements) {
@@ -160,14 +223,13 @@ public class DocumentParserService {
                 if (text == null) text = "";
 
                 if (!capturing) {
-                    if (startPattern.matcher(text).find()) {
+                    if (startPredicate.test(text)) {
                         capturing = true;
-                        System.out.println("   ✅ Start pattern matched at: [" + text + "]");
+                        System.out.println("Start matched: true");
                     }
                     continue;
                 } else {
-                    if (endPattern != null && endPattern.matcher(text).find()) {
-                        System.out.println("   ⏹️ End pattern matched at: [" + text + "] — captured " + captured);
+                    if (endPredicate != null && endPredicate.test(text)) {
                         break;
                     }
 
@@ -193,10 +255,12 @@ public class DocumentParserService {
             }
         }
 
+        System.out.println("Start matched: " + capturing);
+        System.out.println("Captured: " + captured);
+
         if (!capturing) {
-            System.out.println("   ❌ Start pattern never matched — no capture");
-        } else {
-            System.out.println("   → Captured total: " + captured + " elements");
+            System.out.println("Section " + sectionName + " not found; continuing.");
+            System.out.println("Continuing safely.");
         }
 
         return xmlBuilder.toString().trim();
