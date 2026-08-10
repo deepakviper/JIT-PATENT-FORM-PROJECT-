@@ -32,6 +32,8 @@ function App() {
   const [isDownloading, setIsDownloading] = useState(false);
   // Track which forms are selected in the right column
   const [selectedForms, setSelectedForms] = useState([]);
+  // Track the raw source file for Form 2 generation
+  const [sourceFile, setSourceFile] = useState(null);
   // Track user login information (initialized to bypass login page)
   const [user, setUser] = useState({
     name: '',
@@ -75,13 +77,15 @@ function App() {
     try {
       // Loop strictly through checked items only
       for (const formKey of selectedForms) {
+        const formData = new FormData();
+        formData.append('data', JSON.stringify(parsedData));
+        if (sourceFile) {
+          formData.append('sourceFile', sourceFile);
+        }
         
         const response = await fetch(`${import.meta.env.VITE_API_URL}/api/patent/download?formType=${formKey}`, {
           method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json' 
-          },
-          body: JSON.stringify(parsedData), 
+          body: formData,
         });
 
         if (!response.ok) {
@@ -123,6 +127,7 @@ function App() {
   };
 
   const handleResetWorkspace = () => {
+    setSourceFile(null);
     setUser({
       name: '',
       email: '',
@@ -164,7 +169,10 @@ function App() {
     setSelectedForms([]);
   };
 
-  const handleDataParsed = (data) => {
+  const handleDataParsed = (data, file) => {
+    if (file) {
+      setSourceFile(file);
+    }
     if (data) {
       const parsedAddress = data.applicant?.address || {};
 

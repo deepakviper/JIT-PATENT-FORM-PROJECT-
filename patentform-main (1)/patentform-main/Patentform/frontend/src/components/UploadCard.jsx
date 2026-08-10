@@ -87,7 +87,7 @@ function UploadCard({ onDataParsed }) {
       const parsedResponseData = await parseResponse.json();
       setHasData(true);
       if (onDataParsed) {
-        onDataParsed(parsedResponseData); 
+        onDataParsed(parsedResponseData, uploadedFile); 
       }
 
     } catch (error) {
