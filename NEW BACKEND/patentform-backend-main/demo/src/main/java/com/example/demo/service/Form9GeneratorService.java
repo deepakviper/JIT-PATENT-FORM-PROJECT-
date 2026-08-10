@@ -11,156 +11,258 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
 public class Form9GeneratorService {
 
     private static final Logger logger = LoggerFactory.getLogger(Form9GeneratorService.class);
 
+    // ------------------------------------------------------------------
+    // MAIN ENTRY POINT
+    // ------------------------------------------------------------------
+
     public byte[] generateForm9(PatentFormResponse data) {
-        ClassPathResource resource = new ClassPathResource("form 9.docx");
+
+        System.out.println("========== FORM 9 GENERATE DEBUG ==========");
+        System.out.println("Principal: " + (data.getPrincipal() != null ? data.getPrincipal().getName() : "NULL"));
+        System.out.println("Inventors count: " + (data.getInventors() != null ? data.getInventors().size() : 0));
+        System.out.println("Title: " + data.getTitleOfInvention());
+        System.out.println("============================================");
+
+        ClassPathResource resource = new ClassPathResource("form 9main.docx");
 
         if (!resource.exists()) {
-            logger.error("❌ CRITICAL: form 9.docx was NOT found inside src/main/resources/");
+            logger.error("❌ form 9main.docx not found in resources/");
             return new byte[0];
         }
 
-        try (InputStream is = resource.getInputStream(); XWPFDocument document = new XWPFDocument(is)) {
+        try (InputStream is = resource.getInputStream();
+             XWPFDocument document = new XWPFDocument(is)) {
 
             Map<String, String> replacements = buildReplacementsMap(data);
 
-            // Process standalone paragraphs
-            if (document.getParagraphs() != null) {
-                for (XWPFParagraph paragraph : document.getParagraphs()) {
-                    replacePlaceholdersInParagraph(paragraph, replacements);
-                }
+            // 1. Replace placeholders in standalone paragraphs
+            for (XWPFParagraph paragraph : new ArrayList<>(document.getParagraphs())) {
+                replacePlaceholders(paragraph, replacements);
             }
 
-            // Process table cells
+            // 2. Replace placeholders inside all table cells (critical for Section 1)
             if (document.getTables() != null) {
                 for (XWPFTable table : document.getTables()) {
                     for (XWPFTableRow row : table.getRows()) {
                         for (XWPFTableCell cell : row.getTableCells()) {
                             for (XWPFParagraph paragraph : cell.getParagraphs()) {
-                                replacePlaceholdersInParagraph(paragraph, replacements);
+                                replacePlaceholders(paragraph, replacements);
                             }
                         }
                     }
                 }
             }
 
+            // 3. Write output
             try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
                 document.write(bos);
                 return bos.toByteArray();
             }
+
         } catch (Exception e) {
-            logger.error("❌ CRITICAL EXCEPTION DURING PROCESSING:", e);
+            logger.error("❌ CRITICAL ERROR DURING FORM 9 GENERATION", e);
+            e.printStackTrace();
             return new byte[0];
         }
     }
 
+    // ------------------------------------------------------------------
+    // Build placeholder map
+    // ------------------------------------------------------------------
+
     private Map<String, String> buildReplacementsMap(PatentFormResponse data) {
         Map<String, String> map = new HashMap<>();
+
+        // 1. Title
+        map.put("{title}", nullSafe(data.getTitleOfInvention()));
+
+        // 2. Nationality — from applicant
+        String nationality = "Indian";
+        if (data.getApplicant() != null && notBlank(data.getApplicant().getNationality())) {
+            nationality = data.getApplicant().getNationality();
+        }
+        map.put("{nation}", nationality);
+
+        // 3. Address (multi-line vertical format)
+        String address = buildMultiLineAddress(data);
+        map.put("{inv_address}", address);
+
+        // 4. Date — today's date in "09th August 2026" format
         LocalDate today = LocalDate.now();
+        int day = today.getDayOfMonth();
+        String formattedDate = day + getOrdinalSuffix(day) + " "
+                + today.format(DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH))
+                + " " + today.format(DateTimeFormatter.ofPattern("yyyy"));
+        map.put("{date}", formattedDate);
 
-        String applicantName = "Jeppiaar Institute of Technology";
-        if (data != null && data.getApplicant() != null && data.getApplicant().getName() != null
-                && !data.getApplicant().getName().trim().isEmpty()) {
-            applicantName = data.getApplicant().getName().trim();
+        // 5. Principal
+        if (data.getPrincipal() != null && notBlank(data.getPrincipal().getName())) {
+            map.put("{principal}", data.getPrincipal().getName());
+        } else {
+            map.put("{principal}", "");
         }
 
-        map.put("{applicantName}", applicantName);
-        map.put("{signatureName}", applicantName);
-        map.put("{currentDay}", String.valueOf(today.getDayOfMonth()));
-        map.put("{currentMonth}", today.format(DateTimeFormatter.ofPattern("MMMM")));
-        map.put("{currentYear}", String.valueOf(today.getYear()));
-        map.put("{patentOfficeBranch}", "Chennai");
-
-        String applicantAddressStr = "";
-        String applicantNationality = "Indian";
-        if (data != null && data.getApplicant() != null) {
-            applicantNationality = data.getApplicant().getNationality() != null ? data.getApplicant().getNationality() : "Indian";
-            if (data.getApplicant().getAddress() != null) {
-                PatentFormResponse.AddressDTO addr = data.getApplicant().getAddress();
-                List<String> parts = new ArrayList<>();
-                if (addr.getHouseNo() != null && !addr.getHouseNo().isBlank()) parts.add(addr.getHouseNo().trim());
-                if (addr.getStreet() != null && !addr.getStreet().isBlank()) parts.add(addr.getStreet().trim());
-                if (addr.getAreaLocality() != null && !addr.getAreaLocality().isBlank()) parts.add(addr.getAreaLocality().trim());
-                if (addr.getVillageTown() != null && !addr.getVillageTown().isBlank()) parts.add(addr.getVillageTown().trim());
-                if (addr.getCity() != null && !addr.getCity().isBlank()) parts.add(addr.getCity().trim());
-                if (addr.getDistrict() != null && !addr.getDistrict().isBlank()) parts.add(addr.getDistrict().trim());
-                if (addr.getState() != null && !addr.getState().isBlank()) parts.add(addr.getState().trim());
-                if (addr.getCountry() != null && !addr.getCountry().isBlank()) parts.add(addr.getCountry().trim());
-                
-                applicantAddressStr = String.join(", ", parts);
-                if (addr.getPincode() != null && !addr.getPincode().isBlank()) {
-                    if (!applicantAddressStr.isEmpty()) {
-                        applicantAddressStr += " - " + addr.getPincode().trim();
-                    } else {
-                        applicantAddressStr = addr.getPincode().trim();
-                    }
-                }
+        // 6. Inventor names — VERTICAL (each on new line) for table
+        if (data.getInventors() != null && !data.getInventors().isEmpty()) {
+            StringBuilder verticalNames = new StringBuilder();
+            for (int i = 0; i < data.getInventors().size(); i++) {
+                if (i > 0) verticalNames.append("\n");
+                String name = data.getInventors().get(i).getName();
+                verticalNames.append(name != null ? name.toUpperCase() : "");
             }
+            map.put("{inventor_names_vertical}", verticalNames.toString());
+
+            // 7. Inventor names — HORIZONTAL (comma-separated) for sentence
+            StringBuilder horizontalNames = new StringBuilder();
+            for (int i = 0; i < data.getInventors().size(); i++) {
+                if (i > 0) horizontalNames.append(", ");
+                String name = data.getInventors().get(i).getName();
+                horizontalNames.append(name != null ? name.toUpperCase() : "");
+            }
+            map.put("{inventor_names_horizontal}", horizontalNames.toString());
+        } else {
+            map.put("{inventor_names_vertical}", "");
+            map.put("{inventor_names_horizontal}", "");
         }
-        map.put("{applicantAddress}", applicantAddressStr);
-        map.put("{applicantNationality}", applicantNationality);
-        map.put("{applicationNo}", "N/A");
-        map.put("{applicationDate}", "N/A");
 
         return map;
     }
 
-    private void replacePlaceholdersInParagraph(XWPFParagraph paragraph, Map<String, String> replacements) {
-        String paragraphText = paragraph.getText();
-        if (paragraphText == null || paragraphText.isEmpty()) return;
+    /**
+     * Builds multi-line address for {inv_address} placeholder.
+     * Example output:
+     *   Kunnam, Sunguvarchatram
+     *   Sriperumbudur
+     *   Tamil Nadu
+     *   India - 631604
+     */
+    private String buildMultiLineAddress(PatentFormResponse data) {
+        if (data.getApplicant() == null || data.getApplicant().getAddress() == null) {
+            return "";
+        }
 
-        boolean updated = false;
+        PatentFormResponse.AddressDTO addr = data.getApplicant().getAddress();
+        StringBuilder sb = new StringBuilder();
 
-        // Pre-process Form 9 dots/ellipses to standard curly brace placeholders
-        if (paragraphText.contains("l/We") || paragraphText.contains("I/We")) {
-            paragraphText = paragraphText.replaceAll("(?i)(l/We\\s+l\\s+[\\s\u2026.]{2,}|l/We\\s+[\\s\u2026.]{2,})", "I/We {applicantName}, residing at {applicantAddress}, nationality: {applicantNationality}");
-            updated = true;
+        // Line 1: Street (if present)
+        if (notBlank(addr.getStreet())) {
+            sb.append(addr.getStreet());
         }
-        if (paragraphText.contains("Patent application No")) {
-            paragraphText = "Patent application No: {applicationNo}              dated {applicationDate}";
-            updated = true;
+
+        // Line 2: City
+        if (notBlank(addr.getCity())) {
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(addr.getCity());
         }
-        if (paragraphText.contains("under section 11A(2)")) {
-            paragraphText = paragraphText.replaceAll("^[\\s\u2026.]+", "");
-            updated = true;
+
+        // Line 3: State
+        if (notBlank(addr.getState())) {
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(addr.getState());
         }
-        if (paragraphText.contains("day of")) {
-            // Replaces "..day of .. 20" or similar
-            paragraphText = paragraphText.replaceAll("[\\s\u2026.]*day of", "{currentDay} day of");
-            paragraphText = paragraphText.replaceAll("of\\s*[\\s\u2026.]*\\s*20[\\s\u2026.]*", "of {currentMonth} 20{currentYear}");
-            updated = true;
+
+        // Line 4: Country - Pincode
+        StringBuilder countryLine = new StringBuilder();
+        if (notBlank(addr.getCountry())) {
+            countryLine.append(addr.getCountry());
+        } else {
+            countryLine.append("India");
         }
-        if (paragraphText.contains("Signature")) {
-            paragraphText = paragraphText.replaceAll("Signature\\s*[\\s\u2026.]+\\s*\\d*", "Signature: {signatureName}");
-            updated = true;
+        if (notBlank(addr.getPincode())) {
+            countryLine.append(" - ").append(addr.getPincode());
         }
-        if (paragraphText.contains("At .") || paragraphText.trim().endsWith("At .")) {
-            paragraphText = paragraphText.replaceAll("At\\s*[\\s\u2026.]+", "At {patentOfficeBranch}");
-            updated = true;
+
+        if (sb.length() > 0) sb.append("\n");
+        sb.append(countryLine);
+
+        return sb.toString();
+    }
+
+    // ------------------------------------------------------------------
+    // Placeholder replacer — handles multi-line values (\n) properly
+    // ------------------------------------------------------------------
+
+    private void replacePlaceholders(XWPFParagraph paragraph, Map<String, String> replacements) {
+        if (paragraph == null) return;
+        List<XWPFRun> runs = paragraph.getRuns();
+        if (runs == null || runs.isEmpty()) return;
+
+        // Merge all runs into one string to detect split placeholders
+        StringBuilder sb = new StringBuilder();
+        for (XWPFRun run : runs) {
+            String text = run.getText(0);
+            if (text != null) sb.append(text);
         }
+
+        String fullText = sb.toString();
+        boolean replacedAny = false;
 
         for (Map.Entry<String, String> entry : replacements.entrySet()) {
-            if (paragraphText.contains(entry.getKey())) {
-                paragraphText = paragraphText.replace(entry.getKey(), entry.getValue());
-                updated = true;
+            if (fullText.contains(entry.getKey())) {
+                fullText = fullText.replace(entry.getKey(), entry.getValue());
+                replacedAny = true;
             }
         }
 
-        if (updated) {
-            while (paragraph.getRuns().size() > 0) {
-                paragraph.removeRun(0);
-            }
-            XWPFRun newRun = paragraph.createRun();
-            newRun.setText(paragraphText);
+        if (!replacedAny) return;
+
+        // Preserve first run formatting
+        XWPFRun baseRun = runs.get(0);
+        String fontFamily = baseRun.getFontFamily();
+        Double fontSize = baseRun.getFontSizeAsDouble();
+        boolean isBold = baseRun.isBold();
+        boolean isItalic = baseRun.isItalic();
+        String color = baseRun.getColor();
+
+        // Remove all existing runs
+        for (int i = runs.size() - 1; i >= 0; i--) {
+            paragraph.removeRun(i);
         }
+
+        // Split on \n and create real Word line breaks
+        String[] lines = fullText.split("\n", -1);
+        for (int li = 0; li < lines.length; li++) {
+            XWPFRun newRun = paragraph.createRun();
+            newRun.setText(lines[li]);
+            if (fontFamily != null) newRun.setFontFamily(fontFamily);
+            if (fontSize != null && fontSize > 0) newRun.setFontSize(fontSize);
+            newRun.setBold(isBold);
+            newRun.setItalic(isItalic);
+            if (color != null) newRun.setColor(color);
+
+            // Add real Word line break between lines
+            if (li < lines.length - 1) {
+                newRun.addBreak();
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // HELPERS
+    // ------------------------------------------------------------------
+
+    private String getOrdinalSuffix(int day) {
+        if (day >= 11 && day <= 13) return "th";
+        switch (day % 10) {
+            case 1: return "st";
+            case 2: return "nd";
+            case 3: return "rd";
+            default: return "th";
+        }
+    }
+
+    private String nullSafe(String value) {
+        return value != null ? value : "";
+    }
+
+    private boolean notBlank(String s) {
+        return s != null && !s.trim().isEmpty();
     }
 }

@@ -4,113 +4,549 @@ import com.example.demo.dto.PatentFormResponse;
 import org.apache.poi.xwpf.usermodel.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.apache.xmlbeans.XmlCursor;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.util.regex.Pattern;
 
 @Service
 public class Form2GeneratorService {
 
     private static final Logger logger = LoggerFactory.getLogger(Form2GeneratorService.class);
 
-    /**
-     * Generates the byte array for Form 2 (Complete Specification) using Apache POI
-     * @param data The parsed patent data structure
-     * @return Generated .docx byte array
-     */
-    public byte[] generateForm2(PatentFormResponse data) {
-        ClassPathResource resource = new ClassPathResource("Form2_Template.docx");
+    // ------------------------------------------------------------------
+    // MAIN ENTRY POINT
+    // ------------------------------------------------------------------
+
+    public byte[] generateForm2(PatentFormResponse data, byte[] sourceFileBytes) {
+
+        System.out.println("========== FORM 2 GENERATE DEBUG ==========");
+        System.out.println("Principal: " + (data.getPrincipal() != null ? data.getPrincipal().getName() : "NULL"));
+        System.out.println("Inventors count: " + (data.getInventors() != null ? data.getInventors().size() : 0));
+        System.out.println("Source file available: " + (sourceFileBytes != null ? "YES (" + sourceFileBytes.length + " bytes)" : "NO"));
+        System.out.println("============================================");
+
+        ClassPathResource resource = new ClassPathResource("Form2,main .docx");
 
         if (!resource.exists()) {
-            logger.error("Form2_Template.docx was not found inside resources/");
+            logger.error("❌ Form2,main .docx not found in resources/");
             return new byte[0];
         }
 
-        try (InputStream is = resource.getInputStream(); XWPFDocument document = new XWPFDocument(is)) {
+        try (InputStream is = resource.getInputStream();
+             XWPFDocument targetDoc = new XWPFDocument(is)) {
 
-            Map<String, String> replacements = buildReplacementsMap(data);
+            // 1. Text placeholders
+            Map<String, String> textReplacements = buildTextReplacementsMap(data);
 
-            // 1. Process standalone paragraphs
-            if (document.getParagraphs() != null) {
-                // Loop through a copy since we will be inserting new paragraphs
-                List<XWPFParagraph> parasCopy = new ArrayList<>(document.getParagraphs());
-                for (XWPFParagraph paragraph : parasCopy) {
-                    String text = paragraph.getText();
-                    if (text.contains("6.ABSTRACT")) {
-                        paragraph.setPageBreak(true);
-                    }
-                    replacePlaceholdersInParagraphWithLayout(document, paragraph, replacements);
-                }
+            for (XWPFParagraph paragraph : new ArrayList<>(targetDoc.getParagraphs())) {
+                replaceTextPlaceholders(paragraph, textReplacements);
             }
 
-            // 2. Process table cells
-            if (document.getTables() != null) {
-                for (XWPFTable table : document.getTables()) {
+            if (targetDoc.getTables() != null) {
+                for (XWPFTable table : targetDoc.getTables()) {
                     for (XWPFTableRow row : table.getRows()) {
                         for (XWPFTableCell cell : row.getTableCells()) {
-                            List<XWPFParagraph> cellParasCopy = new ArrayList<>(cell.getParagraphs());
-                            for (XWPFParagraph paragraph : cellParasCopy) {
-                                replacePlaceholdersInParagraphWithLayout(document, paragraph, replacements);
+                            for (XWPFParagraph paragraph : cell.getParagraphs()) {
+                                replaceTextPlaceholders(paragraph, textReplacements);
                             }
                         }
                     }
                 }
             }
 
-            // 3. Append saved drawings
-            appendSavedDrawings(document);
+            // 2. If source file provided → copy Description + Abstract with images
+            if (sourceFileBytes != null && sourceFileBytes.length > 0) {
+                try (XWPFDocument sourceDoc = new XWPFDocument(new ByteArrayInputStream(sourceFileBytes))) {
 
+                    // Description
+                    copySectionFromSource(targetDoc, sourceDoc, "{description}",
+                            "(?i)^\\s*DESCRIPTION\\s*:?\\s*$",
+                            "(?i)^\\s*(CLAIMS|WE CLAIM|I CLAIM)\\s*:?\\s*$");
+
+                    // Claims — smart: use source if available, else auto-generate
+                    handleClaimsSection(targetDoc, sourceDoc, data);
+
+                    // Abstract
+                    copySectionFromSource(targetDoc, sourceDoc, "{abstract}",
+                            "(?i)^\\s*ABSTRACT\\s*:?\\s*$",
+                            "(?i)^\\s*DESCRIPTION\\s*:?\\s*$");
+                }
+            } else {
+                fallbackPlainTextInjection(targetDoc, "{description}", data.getDescriptionXml());
+                fallbackPlainTextInjection(targetDoc, "{claims}",      data.getClaimsXml());
+                fallbackPlainTextInjection(targetDoc, "{abstract}",    data.getAbstractXml());
+            }
+
+            // 3. Write output
             try (ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
-                document.write(bos);
+                targetDoc.write(bos);
                 return bos.toByteArray();
             }
+
         } catch (Exception e) {
-            logger.error("CRITICAL ERROR DURING FORM 2 GENERATION", e);
+            logger.error("❌ CRITICAL ERROR DURING FORM 2 GENERATION", e);
+            e.printStackTrace();
             return new byte[0];
         }
     }
 
-    /**
-     * Maps the template placeholder tokens to the values dynamically extracted in the DTO
-     */
-    private Map<String, String> buildReplacementsMap(PatentFormResponse data) {
-        Map<String, String> map = new HashMap<>();
+    // ------------------------------------------------------------------
+    // CLAIMS HANDLER — smart routing
+    // ------------------------------------------------------------------
 
-        // 1. Title
-        map.put("{title}", data.getTitleOfInvention() != null ? data.getTitleOfInvention() : "");
+    private void handleClaimsSection(XWPFDocument targetDoc, XWPFDocument sourceDoc, PatentFormResponse data) {
+        // Check if source has CLAIMS section
+        boolean sourceHasClaims = doesSourceHaveClaimsSection(sourceDoc);
 
-        // 2. Applicant Info
-        if (data.getApplicant() != null) {
-            PatentFormResponse.ApplicantDTO applicant = data.getApplicant();
-            map.put("{applicantName}", applicant.getName() != null ? applicant.getName() : "");
-            map.put("{applicantNationality}", applicant.getNationality() != null ? applicant.getNationality() : "Indian");
-            if (applicant.getAddress() != null) {
-                PatentFormResponse.AddressDTO applicantAddress = applicant.getAddress();
-                List<String> parts = new ArrayList<>();
-                if (applicantAddress.getHouseNo() != null && !applicantAddress.getHouseNo().isBlank()) parts.add(applicantAddress.getHouseNo().trim());
-                if (applicantAddress.getStreet() != null && !applicantAddress.getStreet().isBlank()) parts.add(applicantAddress.getStreet().trim());
-                if (applicantAddress.getAreaLocality() != null && !applicantAddress.getAreaLocality().isBlank()) parts.add(applicantAddress.getAreaLocality().trim());
-                if (applicantAddress.getVillageTown() != null && !applicantAddress.getVillageTown().isBlank()) parts.add(applicantAddress.getVillageTown().trim());
-                if (applicantAddress.getCity() != null && !applicantAddress.getCity().isBlank()) parts.add(applicantAddress.getCity().trim());
-                if (applicantAddress.getDistrict() != null && !applicantAddress.getDistrict().isBlank()) parts.add(applicantAddress.getDistrict().trim());
-                if (applicantAddress.getState() != null && !applicantAddress.getState().isBlank()) parts.add(applicantAddress.getState().trim());
-                if (applicantAddress.getCountry() != null && !applicantAddress.getCountry().isBlank()) parts.add(applicantAddress.getCountry().trim());
-                
-                String fullAddress = String.join(", ", parts);
-                if (applicantAddress.getPincode() != null && !applicantAddress.getPincode().isBlank()) {
-                    if (!fullAddress.isEmpty()) {
-                        fullAddress += " - " + applicantAddress.getPincode().trim();
-                    } else {
-                        fullAddress = applicantAddress.getPincode().trim();
+        if (sourceHasClaims) {
+            System.out.println("✅ Source has CLAIMS section — using it directly");
+            copySectionFromSource(targetDoc, sourceDoc, "{claims}",
+                    "(?i)^\\s*(CLAIMS|WE CLAIM|I CLAIM)\\s*:?\\s*$",
+                    null);
+        } else {
+            System.out.println("ℹ️ Source has NO CLAIMS section — auto-generating from Workflow Methodology");
+            generateAutoClaims(targetDoc, sourceDoc, data);
+        }
+    }
+
+    private boolean doesSourceHaveClaimsSection(XWPFDocument sourceDoc) {
+        Pattern claimsHeading = Pattern.compile("(?i)^\\s*(CLAIMS|WE CLAIM|I CLAIM)\\s*:?\\s*$");
+        for (IBodyElement el : sourceDoc.getBodyElements()) {
+            if (el instanceof XWPFParagraph) {
+                String text = ((XWPFParagraph) el).getText();
+                if (text != null && claimsHeading.matcher(text).find()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // ------------------------------------------------------------------
+    // AUTO-GENERATE CLAIMS from Workflow Methodology section
+    // ------------------------------------------------------------------
+
+    private void generateAutoClaims(XWPFDocument targetDoc, XWPFDocument sourceDoc, PatentFormResponse data) {
+        XWPFParagraph targetPlaceholder = findParagraphContainingPlaceholder(targetDoc, "{claims}");
+        if (targetPlaceholder == null) {
+            System.out.println("❌ {claims} placeholder not found in target");
+            return;
+        }
+
+        // Extract workflow methodology stages from source
+        List<String> stages = extractWorkflowStages(sourceDoc);
+        System.out.println("   → Extracted " + stages.size() + " workflow stages");
+
+        String title = data.getTitleOfInvention() != null
+                ? data.getTitleOfInvention()
+                : "the invention";
+
+        // Build claims list
+        List<ClaimEntry> claims = new ArrayList<>();
+
+        // Claim 1 — preamble about invention
+        claims.add(new ClaimEntry(
+                "The patent disclosure covers Novel System, Design and Method of "
+                        + title
+                        + " as described above in Fig 1 & 2. The operational methodology of the invention consists of the following stages:",
+                new ArrayList<>()
+        ));
+
+        // Claims 2-N — stages
+        for (String stage : stages) {
+            ClaimEntry entry = parseStageAsClaim(stage);
+            if (entry != null) {
+                claims.add(entry);
+            }
+        }
+
+        // ---- Now insert them into target ----
+
+        // Preamble: "I/We Claim,"
+        String preamble = (data.getInventors() != null && data.getInventors().size() > 1)
+                ? "We Claim,"
+                : "I/We Claim,";
+
+        insertParagraph(targetDoc, targetPlaceholder, preamble, true, false, 12);
+        insertParagraph(targetDoc, targetPlaceholder, "", false, false, 11);
+
+        // Numbered claims
+        int claimNumber = 1;
+        for (ClaimEntry entry : claims) {
+            String claimText = claimNumber + ". " + entry.text;
+            insertParagraph(targetDoc, targetPlaceholder, claimText, false, false, 11);
+
+            // Sub-bullet points (if any)
+            for (String bullet : entry.subBullets) {
+                insertParagraph(targetDoc, targetPlaceholder, "  • " + bullet, false, false, 11);
+            }
+
+            // Blank line between claims
+            insertParagraph(targetDoc, targetPlaceholder, "", false, false, 11);
+
+            claimNumber++;
+        }
+
+        // Remove placeholder
+        int pos = targetDoc.getPosOfParagraph(targetPlaceholder);
+        if (pos >= 0) {
+            targetDoc.removeBodyElement(pos);
+        }
+
+        System.out.println("✅ Auto-generated " + claims.size() + " claims");
+    }
+
+    private List<String> extractWorkflowStages(XWPFDocument sourceDoc) {
+        List<String> stages = new ArrayList<>();
+
+        Pattern startPattern = Pattern.compile("(?i)^\\s*WORKFLOW\\s+METHODOLOGY\\s*:?\\s*$");
+        Pattern endPattern = Pattern.compile("(?i)^\\s*(EXEMPLARY|UNIQUENESS|IMPLEMENTATION\\s+SCENARIO|REFERENCES)\\s*.*");
+
+        boolean capturing = false;
+        StringBuilder currentStage = null;
+
+        for (IBodyElement el : sourceDoc.getBodyElements()) {
+            if (!(el instanceof XWPFParagraph)) continue;
+
+            String text = ((XWPFParagraph) el).getText();
+            if (text == null) text = "";
+            String trimmed = text.trim();
+
+            if (!capturing) {
+                if (startPattern.matcher(trimmed).find()) {
+                    capturing = true;
+                }
+                continue;
+            } else {
+                if (endPattern.matcher(trimmed).find()) {
+                    if (currentStage != null && currentStage.length() > 0) {
+                        stages.add(currentStage.toString().trim());
+                    }
+                    break;
+                }
+
+                if (trimmed.isEmpty()) continue;
+
+                // Detect stage boundary: "Stage 1:", "Stage 2:", etc.
+                if (trimmed.matches("(?i)^Stage\\s+\\d+\\s*:.*")) {
+                    // Save previous stage
+                    if (currentStage != null && currentStage.length() > 0) {
+                        stages.add(currentStage.toString().trim());
+                    }
+                    // Start new stage — strip "Stage N:" prefix
+                    String cleaned = trimmed.replaceFirst("(?i)^Stage\\s+\\d+\\s*:\\s*", "");
+                    currentStage = new StringBuilder(cleaned);
+                } else if (currentStage != null) {
+                    // Continuation lines (like sub-bullets)
+                    currentStage.append("\n").append(trimmed);
+                } else {
+                    // Text before first "Stage N:" — start a stage-less block
+                    if (currentStage == null) {
+                        currentStage = new StringBuilder(trimmed);
                     }
                 }
+            }
+        }
+
+        // Add final stage if we didn't hit end pattern
+        if (capturing && currentStage != null && currentStage.length() > 0) {
+            stages.add(currentStage.toString().trim());
+        }
+
+        return stages;
+    }
+
+    /**
+     * Parses a stage text into main claim text + optional sub-bullets.
+     * Example input:
+     *   "Risk Classification: Risks are classified into:
+     *    Low Risk
+     *    Moderate Risk
+     *    High Risk
+     *    Critical Risk"
+     *
+     * Returns:
+     *   text = "Risk Classification: Risks are classified into:"
+     *   subBullets = ["Low Risk", "Moderate Risk", "High Risk", "Critical Risk"]
+     */
+    private ClaimEntry parseStageAsClaim(String stageText) {
+        if (stageText == null || stageText.isBlank()) return null;
+
+        String[] lines = stageText.split("\n");
+        String mainText = lines[0].trim();
+        List<String> subBullets = new ArrayList<>();
+
+        for (int i = 1; i < lines.length; i++) {
+            String line = lines[i].trim();
+            if (!line.isEmpty()) {
+                subBullets.add(line);
+            }
+        }
+
+        return new ClaimEntry(mainText, subBullets);
+    }
+
+    private static class ClaimEntry {
+        String text;
+        List<String> subBullets;
+
+        ClaimEntry(String text, List<String> subBullets) {
+            this.text = text;
+            this.subBullets = subBullets;
+        }
+    }
+
+    private void insertParagraph(XWPFDocument doc, XWPFParagraph beforeThis,
+                                 String text, boolean bold, boolean italic, int fontSize) {
+        XWPFParagraph newPara = doc.insertNewParagraph(beforeThis.getCTP().newCursor());
+        XWPFRun run = newPara.createRun();
+        run.setText(text);
+        run.setFontFamily("Times New Roman");
+        run.setFontSize(fontSize);
+        run.setColor("000000");
+        run.setBold(bold);
+        run.setItalic(italic);
+    }
+
+    // ------------------------------------------------------------------
+    // Copy a section from source to target — preserves images/formatting
+    // ------------------------------------------------------------------
+
+    private void copySectionFromSource(XWPFDocument targetDoc, XWPFDocument sourceDoc,
+                                       String placeholder, String startPatternStr, String endPatternStr) {
+
+        XWPFParagraph targetPlaceholderPara = findParagraphContainingPlaceholder(targetDoc, placeholder);
+        if (targetPlaceholderPara == null) {
+            System.out.println("❌ Placeholder " + placeholder + " NOT FOUND in template");
+            return;
+        }
+
+        Pattern startPattern = Pattern.compile(startPatternStr);
+        Pattern endPattern = endPatternStr != null ? Pattern.compile(endPatternStr) : null;
+
+        System.out.println("✅ Copying " + placeholder + " section from source doc...");
+
+        boolean capturing = false;
+        int copiedCount = 0;
+
+        for (IBodyElement el : sourceDoc.getBodyElements()) {
+            if (el instanceof XWPFParagraph) {
+                XWPFParagraph sourcePara = (XWPFParagraph) el;
+                String text = sourcePara.getText();
+                if (text == null) text = "";
+
+                if (!capturing) {
+                    if (startPattern.matcher(text).find()) {
+                        capturing = true;
+                    }
+                    continue;
+                } else {
+                    if (endPattern != null && endPattern.matcher(text).find()) {
+                        break;
+                    }
+
+                    try {
+                        copyParagraphToTarget(sourcePara, targetDoc, targetPlaceholderPara);
+                        copiedCount++;
+                    } catch (Exception ex) {
+                        System.out.println("   ⚠️ Failed to copy paragraph: " + ex.getMessage());
+                    }
+                }
+            } else if (el instanceof XWPFTable && capturing) {
+                try {
+                    copyTableToTarget((XWPFTable) el, targetDoc, targetPlaceholderPara);
+                    copiedCount++;
+                } catch (Exception ex) {
+                    System.out.println("   ⚠️ Failed to copy table: " + ex.getMessage());
+                }
+            }
+        }
+
+        System.out.println("   → Total copied: " + copiedCount + " elements");
+
+        int pos = targetDoc.getPosOfParagraph(targetPlaceholderPara);
+        if (pos >= 0) {
+            targetDoc.removeBodyElement(pos);
+        }
+    }
+
+    private void copyParagraphToTarget(XWPFParagraph sourcePara, XWPFDocument targetDoc,
+                                       XWPFParagraph beforeThisPara) throws Exception {
+
+        XWPFParagraph newPara = targetDoc.insertNewParagraph(beforeThisPara.getCTP().newCursor());
+
+        if (sourcePara.getCTP().getPPr() != null) {
+            newPara.getCTP().setPPr((org.openxmlformats.schemas.wordprocessingml.x2006.main.CTPPr)
+                    sourcePara.getCTP().getPPr().copy());
+        }
+
+        for (XWPFRun sourceRun : sourcePara.getRuns()) {
+            XWPFRun newRun = newPara.createRun();
+
+            String text = sourceRun.getText(0);
+            if (text != null) {
+                newRun.setText(text);
+            }
+
+            String fontFamily = sourceRun.getFontFamily();
+            if (fontFamily != null) newRun.setFontFamily(fontFamily);
+
+            int fontSize = sourceRun.getFontSize();
+            if (fontSize > 0) newRun.setFontSize(fontSize);
+
+            newRun.setBold(sourceRun.isBold());
+            newRun.setItalic(sourceRun.isItalic());
+
+            String color = sourceRun.getColor();
+            if (color != null) newRun.setColor(color);
+
+            if (sourceRun.getUnderline() != null && sourceRun.getUnderline() != UnderlinePatterns.NONE) {
+                newRun.setUnderline(sourceRun.getUnderline());
+            }
+
+            // Copy embedded images
+            for (XWPFPicture picture : sourceRun.getEmbeddedPictures()) {
+                try {
+                    XWPFPictureData pictureData = picture.getPictureData();
+                    byte[] imageBytes = pictureData.getData();
+                    String fileName = pictureData.getFileName();
+                    int pictureType = pictureData.getPictureType();
+
+                    int widthEmu = 5000000;
+                    int heightEmu = 4000000;
+
+                    newRun.addPicture(
+                            new ByteArrayInputStream(imageBytes),
+                            pictureType,
+                            fileName != null ? fileName : "image",
+                            widthEmu,
+                            heightEmu
+                    );
+
+                    System.out.println("      🖼️ Copied image: " + fileName);
+                } catch (Exception ex) {
+                    System.out.println("      ⚠️ Failed to copy image: " + ex.getMessage());
+                }
+            }
+        }
+    }
+
+    private void copyTableToTarget(XWPFTable sourceTable, XWPFDocument targetDoc,
+                                   XWPFParagraph beforeThisPara) throws Exception {
+        XWPFTable newTable = targetDoc.insertNewTbl(beforeThisPara.getCTP().newCursor());
+        newTable.getCTTbl().set(sourceTable.getCTTbl().copy());
+    }
+
+    // ------------------------------------------------------------------
+    // FALLBACK — Plain text injection (no source file case)
+    // ------------------------------------------------------------------
+
+    private void fallbackPlainTextInjection(XWPFDocument document, String placeholder, String xmlContent) {
+        String plainText = getPlainTextFromXml(xmlContent);
+        XWPFParagraph target = findParagraphContainingPlaceholder(document, placeholder);
+
+        if (target == null) return;
+
+        if (plainText == null || plainText.trim().isEmpty()) {
+            clearParagraphText(target);
+            return;
+        }
+
+        String[] lines = plainText.split("\n");
+        for (String line : lines) {
+            if (line.trim().isEmpty()) continue;
+
+            XWPFParagraph newPara = document.insertNewParagraph(target.getCTP().newCursor());
+            XWPFRun run = newPara.createRun();
+            run.setText(line.trim());
+            run.setFontFamily("Times New Roman");
+            run.setFontSize(11);
+            run.setColor("000000");
+
+            if (isLikelyHeading(line.trim())) {
+                run.setBold(true);
+                run.setFontSize(12);
+            }
+        }
+
+        int pos = document.getPosOfParagraph(target);
+        if (pos >= 0) document.removeBodyElement(pos);
+    }
+
+    private String getPlainTextFromXml(String xmlContent) {
+        if (xmlContent == null || xmlContent.trim().isEmpty()) return "";
+
+        String DELIMITER = "|||ELEMENT_SEPARATOR|||";
+        String[] fragments = xmlContent.split(Pattern.quote(DELIMITER));
+
+        StringBuilder result = new StringBuilder();
+
+        for (String fragment : fragments) {
+            if (fragment == null || fragment.trim().isEmpty()) continue;
+
+            String xml = fragment;
+            if (xml.startsWith("P::")) xml = xml.substring(3);
+            else if (xml.startsWith("T::")) xml = xml.substring(3);
+
+            String plainText = xml.replaceAll("<[^>]+>", "").trim();
+            plainText = plainText
+                    .replace("&amp;", "&")
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&quot;", "\"")
+                    .replace("&#39;", "'")
+                    .replace("&apos;", "'");
+
+            if (!plainText.isEmpty()) {
+                result.append(plainText).append("\n");
+            }
+        }
+
+        return result.toString().trim();
+    }
+
+    private boolean isLikelyHeading(String line) {
+        if (line == null || line.isEmpty()) return false;
+        if (line.length() > 100) return false;
+
+        boolean isAllCaps = line.equals(line.toUpperCase());
+        boolean matchesHeadingPattern =
+                line.matches("(?i)^[0-9]+\\.?\\s*[A-Z].*")
+                        || line.matches("(?i)^(TECHNICAL FIELD|BACKGROUND|OBJECTIVES|SUMMARY|DESCRIPTION|CLAIMS|ABSTRACT|SYSTEM ARCHITECTURE|WORKFLOW METHODOLOGY|EXEMPLARY IMPLEMENTATION|UNIQUENESS|REFERENCES).*")
+                        || (isAllCaps && line.length() < 60);
+
+        return matchesHeadingPattern;
+    }
+
+    // ------------------------------------------------------------------
+    // TEXT PLACEHOLDERS
+    // ------------------------------------------------------------------
+
+    private Map<String, String> buildTextReplacementsMap(PatentFormResponse data) {
+        Map<String, String> map = new HashMap<>();
+
+        map.put("{title}", nullSafe(data.getTitleOfInvention()));
+
+        if (data.getApplicant() != null) {
+            PatentFormResponse.ApplicantDTO applicant = data.getApplicant();
+            map.put("{applicantName}",        nullSafe(applicant.getName()));
+            map.put("{applicantNationality}", nullSafe(applicant.getNationality(), "Indian"));
+
+            if (applicant.getAddress() != null) {
+                PatentFormResponse.AddressDTO addr = applicant.getAddress();
+                String fullAddress =
+                        (notBlank(addr.getStreet())  ? addr.getStreet()  + ", " : "")
+                                + (notBlank(addr.getCity())    ? addr.getCity()    + ", " : "")
+                                + (notBlank(addr.getState())   ? addr.getState()   + ", " : "")
+                                + (notBlank(addr.getCountry()) ? addr.getCountry() : "India")
+                                + (notBlank(addr.getPincode()) ? " - " + addr.getPincode() : "");
                 map.put("{applicantAddress}", fullAddress);
             } else {
                 map.put("{applicantAddress}", "");
@@ -121,296 +557,130 @@ public class Form2GeneratorService {
             map.put("{applicantAddress}", "");
         }
 
-        // 3. Dynamic Description Section
-        String descriptionText = (data.getDescription() != null && !data.getDescription().trim().isEmpty())
-                ? data.getDescription()
-                : "No description provided.";
-        map.put("{description}", descriptionText);
-
-        // 4. Dynamic Claims Section
-        String claimsText = (data.getClaims() != null && !data.getClaims().trim().isEmpty())
-                ? data.getClaims()
-                : "No claims provided.";
-        map.put("{claims}", claimsText);
-
-        // 5. Dynamic Abstract Section
-        String abstractTextValue = (data.getAbstractText() != null && !data.getAbstractText().trim().isEmpty())
-                ? data.getAbstractText()
-                : "No abstract provided.";
-        map.put("{abstract}", abstractTextValue);
-
-        // 6. Dynamic Signatures and Date Section
-        java.time.LocalDate today = java.time.LocalDate.now();
-        int dayVal = today.getDayOfMonth();
-        String suffixVal;
-        if (dayVal >= 11 && dayVal <= 13) {
-            suffixVal = "th";
-        } else {
-            switch (dayVal % 10) {
-                case 1:  suffixVal = "st"; break;
-                case 2:  suffixVal = "nd"; break;
-                case 3:  suffixVal = "rd"; break;
-                default: suffixVal = "th"; break;
-            }
-        }
-        String formattedDate = String.format("%02d%s day of %s, %d", dayVal, suffixVal, today.format(java.time.format.DateTimeFormatter.ofPattern("MMMM")), today.getYear());
+        LocalDate today = LocalDate.now();
+        int day = today.getDayOfMonth();
+        String formattedDate = "Dated this " + day + getOrdinalSuffix(day) + " "
+                + today.format(DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH))
+                + " " + today.format(DateTimeFormatter.ofPattern("yyyy"));
         map.put("{date}", formattedDate);
 
-        String principalName = "";
-        if (data.getApplicant() != null) {
-            if (data.getApplicant().getEmail() != null && !data.getApplicant().getEmail().isBlank()) {
-                principalName = data.getApplicant().getEmail().trim();
-            } else if (data.getApplicant().getAddress() != null && data.getApplicant().getAddress().getPrincipalName() != null && !data.getApplicant().getAddress().getPrincipalName().isBlank()) {
-                principalName = data.getApplicant().getAddress().getPrincipalName().trim();
-            } else if (data.getApplicant().getName() != null && !data.getApplicant().getName().isBlank()) {
-                principalName = data.getApplicant().getName().trim();
-            }
+        if (data.getPrincipal() != null && notBlank(data.getPrincipal().getName())) {
+            map.put("{principal}", data.getPrincipal().getName());
+        } else {
+            map.put("{principal}", "");
         }
-        map.put("{principal}", principalName);
 
-        List<PatentFormResponse.InventorDTO> inventors = data.getInventors();
-        String inv1 = "";
-        String inv2 = "";
-        String inv3 = "";
-        if (inventors != null) {
-            if (inventors.size() > 0 && inventors.get(0).getName() != null) {
-                inv1 = inventors.get(0).getName().trim();
+        if (data.getInventors() != null && !data.getInventors().isEmpty()) {
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < data.getInventors().size(); i++) {
+                if (i > 0) sb.append("\t");
+                String name = data.getInventors().get(i).getName();
+                sb.append(name != null ? name.toUpperCase() : "");
             }
-            if (inventors.size() > 1 && inventors.get(1).getName() != null) {
-                inv2 = inventors.get(1).getName().trim();
-            }
-            if (inventors.size() > 2 && inventors.get(2).getName() != null) {
-                inv3 = inventors.get(2).getName().trim();
-            }
+            map.put("{inventor_names}", sb.toString());
+        } else {
+            map.put("{inventor_names}", "");
         }
-        map.put("{inventor 1}", inv1);
-        map.put("{inventor1}", inv1);
-        map.put("{inventor2}", inv2);
-        map.put("{inventor3}", inv3);
 
         return map;
     }
 
-    private void replacePlaceholdersInParagraph(XWPFParagraph paragraph, Map<String, String> replacements) {
+    private void replaceTextPlaceholders(XWPFParagraph paragraph, Map<String, String> replacements) {
         if (paragraph == null) return;
         List<XWPFRun> runs = paragraph.getRuns();
         if (runs == null || runs.isEmpty()) return;
 
-        StringBuilder consolidatedText = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
         for (XWPFRun run : runs) {
             String text = run.getText(0);
-            if (text != null) {
-                consolidatedText.append(text);
-            }
+            if (text != null) sb.append(text);
         }
 
-        String paragraphText = consolidatedText.toString();
+        String fullText = sb.toString();
         boolean replacedAny = false;
 
         for (Map.Entry<String, String> entry : replacements.entrySet()) {
-            String target = entry.getKey();
-            String value = entry.getValue() != null ? entry.getValue() : "";
-
-            if (paragraphText.contains(target)) {
-                paragraphText = paragraphText.replace(target, value);
+            if (fullText.contains(entry.getKey())) {
+                fullText = fullText.replace(entry.getKey(), entry.getValue());
                 replacedAny = true;
             }
         }
 
-        if (replacedAny) {
-            XWPFRun baseRun = runs.get(0);
-            String fontFamily = baseRun.getFontFamily();
-            Double fontSize = baseRun.getFontSizeAsDouble();
-            boolean isBold = baseRun.isBold();
-            boolean isItalic = baseRun.isItalic();
-            String color = baseRun.getColor();
+        if (!replacedAny) return;
 
-            for (int i = runs.size() - 1; i >= 0; i--) {
-                paragraph.removeRun(i);
+        XWPFRun baseRun = runs.get(0);
+        String fontFamily = baseRun.getFontFamily();
+        Double fontSize = baseRun.getFontSizeAsDouble();
+        boolean isBold = baseRun.isBold();
+        boolean isItalic = baseRun.isItalic();
+        String color = baseRun.getColor();
+
+        for (int i = runs.size() - 1; i >= 0; i--) {
+            paragraph.removeRun(i);
+        }
+
+        String[] lines = fullText.split("\n", -1);
+        for (int li = 0; li < lines.length; li++) {
+            String[] tabParts = lines[li].split("\t", -1);
+            for (int ti = 0; ti < tabParts.length; ti++) {
+                XWPFRun newRun = paragraph.createRun();
+                newRun.setText(tabParts[ti]);
+                if (fontFamily != null) newRun.setFontFamily(fontFamily);
+                if (fontSize != null && fontSize > 0) newRun.setFontSize(fontSize);
+                newRun.setBold(isBold);
+                newRun.setItalic(isItalic);
+                if (color != null) newRun.setColor(color);
+
+                if (ti < tabParts.length - 1) newRun.addTab();
             }
-
-            XWPFRun newRun = paragraph.createRun();
-            if (fontFamily != null) newRun.setFontFamily(fontFamily);
-            if (fontSize != null && fontSize > 0) newRun.setFontSize(fontSize);
-            newRun.setBold(isBold);
-            newRun.setItalic(isItalic);
-            if (color != null) newRun.setColor(color);
-
-            String[] lines = paragraphText.split("\n", -1);
-            for (int i = 0; i < lines.length; i++) {
-                newRun.setText(lines[i]);
-                if (i < lines.length - 1) {
-                    newRun.addCarriageReturn();
-                }
+            if (li < lines.length - 1) {
+                XWPFRun brRun = paragraph.createRun();
+                if (fontFamily != null) brRun.setFontFamily(fontFamily);
+                brRun.addBreak();
             }
         }
     }
 
-    private void replacePlaceholdersInParagraphWithLayout(XWPFDocument document, XWPFParagraph paragraph, Map<String, String> replacements) {
-        if (paragraph == null) return;
+    // ------------------------------------------------------------------
+    // HELPERS
+    // ------------------------------------------------------------------
+
+    private XWPFParagraph findParagraphContainingPlaceholder(XWPFDocument document, String placeholder) {
+        for (XWPFParagraph paragraph : document.getParagraphs()) {
+            String text = paragraph.getText();
+            if (text != null && text.contains(placeholder)) {
+                return paragraph;
+            }
+        }
+        return null;
+    }
+
+    private void clearParagraphText(XWPFParagraph paragraph) {
         List<XWPFRun> runs = paragraph.getRuns();
-        if (runs == null || runs.isEmpty()) return;
-
-        StringBuilder consolidatedText = new StringBuilder();
-        for (XWPFRun run : runs) {
-            String text = run.getText(0);
-            if (text != null) {
-                consolidatedText.append(text);
-            }
-        }
-
-        String paragraphText = consolidatedText.toString();
-
-        if (paragraphText.contains("{description}")) {
-            replaceWithMultipleParagraphs(document, paragraph, replacements.get("{description}"));
-            return;
-        } else if (paragraphText.contains("{claims}")) {
-            replaceWithMultipleParagraphs(document, paragraph, replacements.get("{claims}"));
-            return;
-        } else if (paragraphText.contains("{abstract}")) {
-            replaceWithMultipleParagraphs(document, paragraph, replacements.get("{abstract}"));
-            return;
-        }
-
-        replacePlaceholdersInParagraph(paragraph, replacements);
-    }
-
-    private void replaceWithMultipleParagraphs(XWPFDocument document, XWPFParagraph targetPara, String text) {
-        if (text == null) text = "";
-        String[] lines = text.split("\n");
-        XWPFParagraph currentPara = targetPara;
-        
-        while (currentPara.getRuns().size() > 0) {
-            currentPara.removeRun(0);
-        }
-
-        boolean firstLineWritten = false;
-        
-        for (int i = 0; i < lines.length; i++) {
-            String line = lines[i].trim();
-            if (line.isEmpty()) {
-                continue;
-            }
-            
-            XWPFParagraph activePara;
-            if (!firstLineWritten) {
-                activePara = currentPara;
-                firstLineWritten = true;
-            } else {
-                XmlCursor cursor = currentPara.getCTP().newCursor();
-                if (cursor.toNextSibling()) {
-                    activePara = document.insertNewParagraph(cursor);
-                } else {
-                    activePara = document.createParagraph();
-                }
-                activePara.setStyle(targetPara.getStyle());
-                activePara.setSpacingAfter(targetPara.getSpacingAfter());
-                activePara.setSpacingBefore(targetPara.getSpacingBefore());
-            }
-            
-            XWPFRun run = activePara.createRun();
-            run.setFontFamily("Times New Roman");
-            run.setFontSize(12);
-            
-            if (isHeading(line)) {
-                run.setBold(true);
-            }
-            
-            run.setText(line);
-            currentPara = activePara;
+        for (int i = runs.size() - 1; i >= 0; i--) {
+            paragraph.removeRun(i);
         }
     }
 
-    private boolean isHeading(String line) {
-        String trimmed = line.trim();
-        if (trimmed.length() > 80) {
-            return false;
+    private String getOrdinalSuffix(int day) {
+        if (day >= 11 && day <= 13) return "th";
+        switch (day % 10) {
+            case 1: return "st";
+            case 2: return "nd";
+            case 3: return "rd";
+            default: return "th";
         }
-        
-        String clean = trimmed.replaceAll("^[0-9.\\s]+", "").replaceAll("[:.\\s]+$", "").trim();
-        if (clean.isEmpty()) {
-            return false;
-        }
-        
-        boolean allCaps = clean.matches("^[A-Z0-9\\s&(),/\\-]+$") && clean.chars().anyMatch(Character::isLetter);
-        if (allCaps) {
-            return true;
-        }
-        
-        String lower = clean.toLowerCase();
-        return lower.equals("field of the invention")
-                || lower.equals("field of invention")
-                || lower.equals("background of the invention")
-                || lower.equals("background of invention")
-                || lower.equals("object of the invention")
-                || lower.equals("summary of the invention")
-                || lower.equals("summary of invention")
-                || lower.equals("detailed description")
-                || lower.equals("detailed description of the invention")
-                || lower.equals("brief description of drawings")
-                || lower.equals("brief description of the drawings")
-                || lower.equals("claims")
-                || lower.equals("abstract");
     }
 
-    private void appendSavedDrawings(XWPFDocument document) {
-        java.io.File dir = new java.io.File("temp_images");
-        if (!dir.exists()) {
-            return;
-        }
-        java.io.File[] files = dir.listFiles();
-        if (files == null || files.length == 0) {
-            return;
-        }
+    private String nullSafe(String value) {
+        return value != null ? value : "";
+    }
 
-        java.util.Arrays.sort(files, (f1, f2) -> f1.getName().compareTo(f2.getName()));
+    private String nullSafe(String value, String fallback) {
+        return value != null && !value.trim().isEmpty() ? value : fallback;
+    }
 
-        XWPFParagraph headingPara = document.createParagraph();
-        headingPara.setSpacingBefore(480);
-        headingPara.setSpacingAfter(240);
-        XWPFRun headingRun = headingPara.createRun();
-        headingRun.setFontFamily("Times New Roman");
-        headingRun.setFontSize(14);
-        headingRun.setBold(true);
-        headingRun.setText("DRAWINGS / FIGURES");
-
-        for (java.io.File f : files) {
-            String name = f.getName().toLowerCase();
-            int picType = XWPFDocument.PICTURE_TYPE_PNG;
-            if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
-                picType = XWPFDocument.PICTURE_TYPE_JPEG;
-            } else if (name.endsWith(".gif")) {
-                picType = XWPFDocument.PICTURE_TYPE_GIF;
-            }
-
-            XWPFParagraph imgPara = document.createParagraph();
-            imgPara.setAlignment(ParagraphAlignment.CENTER);
-            imgPara.setSpacingAfter(240);
-            
-            XWPFRun imgRun = imgPara.createRun();
-            
-            try (java.io.InputStream is = new java.io.FileInputStream(f)) {
-                // Word drawing size standard dimensions (400px wide, 300px high in EMUs)
-                imgRun.addPicture(is, picType, f.getName(), 3810000, 2857500);
-            } catch (Exception e) {
-                logger.error("Failed to insert drawing: " + f.getName(), e);
-            }
-
-            XWPFParagraph captionPara = document.createParagraph();
-            captionPara.setAlignment(ParagraphAlignment.CENTER);
-            captionPara.setSpacingAfter(240);
-            XWPFRun captionRun = captionPara.createRun();
-            captionRun.setFontFamily("Times New Roman");
-            captionRun.setFontSize(10);
-            captionRun.setItalic(true);
-            
-            String figureNumber = f.getName().replaceAll("^image_", "").replaceAll("\\.[a-zA-Z0-9]+$", "");
-            try {
-                int num = Integer.parseInt(figureNumber) + 1;
-                captionRun.setText("Figure " + num);
-            } catch (Exception e) {
-                captionRun.setText(f.getName());
-            }
-        }
+    private boolean notBlank(String s) {
+        return s != null && !s.trim().isEmpty();
     }
 }

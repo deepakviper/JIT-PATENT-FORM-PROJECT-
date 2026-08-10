@@ -12,6 +12,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -31,8 +32,10 @@ public class DocumentGeneratorService {
         String lowerContent = cleanContent.toLowerCase();
 
         // 1. TITLE EXTRACTION
-        Pattern titlePattern = Pattern
-                .compile("(?i)title of the[^\\n:]*:\\s*(.*?)\\s*(?=\\n\\s*name|\\n\\s*abstract|$)", Pattern.DOTALL);
+        Pattern titlePattern = Pattern.compile(
+                "(?i)title of the[^\\n:]*:\\s*(.*?)\\s*(?=\\n\\s*name|\\n\\s*abstract|$)",
+                Pattern.DOTALL
+        );
         Matcher titleMatcher = titlePattern.matcher(cleanContent);
         if (titleMatcher.find()) {
             response.setTitleOfInvention(titleMatcher.group(1).trim().replace("\n", " "));
@@ -57,22 +60,19 @@ public class DocumentGeneratorService {
 
                 for (String line : lines) {
                     String trimmedLine = line.trim();
-                    if (trimmedLine.isEmpty())
-                        continue;
+                    if (trimmedLine.isEmpty()) continue;
 
                     Matcher pinMatcher = pincodePattern.matcher(trimmedLine);
 
-                    // Identify address line
-                    if (pinMatcher.find() || trimmedLine.toLowerCase().contains("kunnam") ||
-                            trimmedLine.toLowerCase().contains("sunguvarchatram")) {
+                    if (pinMatcher.find()
+                            || trimmedLine.toLowerCase().contains("kunnam")
+                            || trimmedLine.toLowerCase().contains("sunguvarchatram")) {
                         addressLine = trimmedLine;
-                    }
-                    // Collect names safely
-                    else if (!trimmedLine.toLowerCase().contains("department") &&
-                            !trimmedLine.toLowerCase().contains("institute") &&
-                            !trimmedLine.toLowerCase().contains("university") &&
-                            !trimmedLine.toLowerCase().contains("college") &&
-                            !trimmedLine.toLowerCase().contains("cse")) {
+                    } else if (!trimmedLine.toLowerCase().contains("department")
+                            && !trimmedLine.toLowerCase().contains("institute")
+                            && !trimmedLine.toLowerCase().contains("university")
+                            && !trimmedLine.toLowerCase().contains("college")
+                            && !trimmedLine.toLowerCase().contains("cse")) {
 
                         if (trimmedLine.endsWith(",")) {
                             trimmedLine = trimmedLine.substring(0, trimmedLine.length() - 1).trim();
@@ -81,10 +81,8 @@ public class DocumentGeneratorService {
                     }
                 }
 
-                // 1. Map Names to the Applicant
                 applicant.setName(String.join(", ", individualNames));
 
-                // 2. Parse and Map Address directly
                 PatentFormResponse.AddressDTO address = applicant.getAddress();
                 String street = "";
                 String city = "";
@@ -101,8 +99,7 @@ public class DocumentGeneratorService {
                     if (addressParts.length >= 4) {
                         StringBuilder streetBuilder = new StringBuilder();
                         for (int i = 0; i < addressParts.length - 3; i++) {
-                            if (!streetBuilder.isEmpty())
-                                streetBuilder.append(", ");
+                            if (!streetBuilder.isEmpty()) streetBuilder.append(", ");
                             streetBuilder.append(addressParts[i]);
                         }
                         street = streetBuilder.toString();
@@ -128,7 +125,6 @@ public class DocumentGeneratorService {
                     applicant.setCountry(country);
                 }
 
-                // 3. Populate Inventor list
                 List<PatentFormResponse.InventorDTO> inventorsList = new ArrayList<>();
                 for (String name : individualNames) {
                     PatentFormResponse.InventorDTO inventor = new PatentFormResponse.InventorDTO();
@@ -144,24 +140,33 @@ public class DocumentGeneratorService {
     }
 
     public byte[] generateFilledForm1(PatentFormResponse data) throws Exception {
-        ClassPathResource resource = new ClassPathResource("Form1_Template.docx");
+
+        System.out.println("📥 BACKEND RECEIVED INVENTORS: " +
+                (data.getInventors() != null ? data.getInventors().size() : 0));
+        if (data.getInventors() != null) {
+            for (int i = 0; i < data.getInventors().size(); i++) {
+                System.out.println("📥 INVENTOR " + (i + 1) + ": " +
+                        data.getInventors().get(i).getName());
+            }
+        }
+        ClassPathResource resource = new ClassPathResource("Form1mai.docx");
 
         if (!resource.exists()) {
-            System.out.println("\u274C ERROR: Form1_Template.docx was not found inside resources/");
+            System.out.println("❌ ERROR: Form1mai.docx was not found inside resources/");
             return new byte[0];
         }
 
-        try (InputStream is = resource.getInputStream(); XWPFDocument document = new XWPFDocument(is)) {
+        try (InputStream is = resource.getInputStream();
+             XWPFDocument document = new XWPFDocument(is)) {
 
-            // 1. Process non-table standalone paragraphs
+            // 1. Process standalone paragraphs (outside tables)
             if (document.getParagraphs() != null) {
                 for (XWPFParagraph paragraph : document.getParagraphs()) {
                     processParagraph(paragraph, data, null);
                 }
             }
 
-            // 2. Process Tables with Hybrid Fallback Routing (Handles dynamic rows OR split
-            // tables)
+            // 2. Process all tables with hybrid inventor-aware routing
             if (document.getTables() != null) {
                 for (XWPFTable table : document.getTables()) {
                     processInventorAwareTable(table, data);
@@ -172,46 +177,26 @@ public class DocumentGeneratorService {
                 document.write(bos);
                 return bos.toByteArray();
             }
+
         } catch (Exception e) {
-            System.out.println("\u274C CRITICAL ERROR DURING DOC GENERATION:");
+            System.out.println("❌ CRITICAL ERROR DURING DOC GENERATION:");
             e.printStackTrace();
             return new byte[0];
         }
     }
 
-    /**
-     * Routes a single table through the hybrid Split / Unified inventor-table
-     * strategy.
-     *
-     * SPLIT TEMPLATE (the real Form1 layout): {{INV_NAME}} lives in one physical
-     * row
-     * (often the top of a vMerge block spanning the address rows below it), while
-     * {{INV_STREET}} / {{INV_CITY}} / etc. live in *different* physical rows. In
-     * this
-     * case we NEVER clone rows — we stitch every inventor's
-     * name/nationality/country
-     * into the single existing cell using addBreak(), and let the (shared) address
-     * fields populate once from the applicant/institution address. This is the only
-     * safe strategy when a vMerge block is involved, since cloning a row that
-     * participates in a vMerge group would require cloning and re-flagging the
-     * entire
-     * merged group (restart/continue) to avoid corrupting the grid.
-     *
-     * UNIFIED TEMPLATE (a template variant, not what Form1 actually uses today): if
-     * {{INV_NAME}} and {{INV_STREET}} are found in the SAME physical row, we assume
-     * each inventor gets their own full row, and we clone that row per inventor
-     * using
-     * a deep XML copy captured BEFORE any text replacement happens.
-     */
+    // -------------------------------------------------------------------------
+    // TABLE PROCESSING
+    // -------------------------------------------------------------------------
+
     private void processInventorAwareTable(XWPFTable table, PatentFormResponse data) {
         List<XWPFTableRow> rows = table.getRows();
-        if (rows == null || rows.isEmpty())
-            return;
+        if (rows == null || rows.isEmpty()) return;
 
-        int nameRowIndex = findRowIndexContainingToken(rows, "{{INV_NAME}}");
+        int nameRowIndex   = findRowIndexContainingToken(rows, "{{INV_NAME}}");
         int streetRowIndex = findRowIndexContainingToken(rows, "{{INV_STREET}}");
 
-        boolean hasInventorNameToken = nameRowIndex != -1;
+        boolean hasInventorNameToken       = nameRowIndex != -1;
         boolean isUnifiedSingleRowTemplate = hasInventorNameToken
                 && streetRowIndex != -1
                 && streetRowIndex == nameRowIndex;
@@ -222,8 +207,6 @@ public class DocumentGeneratorService {
             if (isUnifiedSingleRowTemplate && r == nameRowIndex) {
                 r = processUnifiedInventorRow(table, r, row, data);
             } else {
-                // Split-template row (or any non-inventor row): process in place,
-                // never clone. Multi-inventor stitching happens inside processParagraph.
                 for (XWPFTableCell cell : row.getTableCells()) {
                     for (XWPFParagraph paragraph : cell.getParagraphs()) {
                         processParagraph(paragraph, data, null);
@@ -233,8 +216,8 @@ public class DocumentGeneratorService {
         }
     }
 
-    private int processUnifiedInventorRow(XWPFTable table, int rowIndex, XWPFTableRow sourceRow,
-            PatentFormResponse data) {
+    private int processUnifiedInventorRow(XWPFTable table, int rowIndex,
+                                          XWPFTableRow sourceRow, PatentFormResponse data) {
         List<PatentFormResponse.InventorDTO> inventors = data.getInventors();
 
         if (inventors == null || inventors.isEmpty()) {
@@ -246,9 +229,7 @@ public class DocumentGeneratorService {
             return rowIndex;
         }
 
-        // Snapshot the pristine row XML BEFORE any replacement mutates it.
         String pristineRowXml = sourceRow.getCtRow().xmlText();
-
         int insertIndex = rowIndex;
 
         for (int i = 0; i < inventors.size(); i++) {
@@ -267,14 +248,6 @@ public class DocumentGeneratorService {
                     throw new RuntimeException("Failed to deep-clone inventor row XML", e);
                 }
 
-                // CRITICAL FIX: table.insertNewTableRow() builds its XWPFTableRow's
-                // internal cell list from whatever XML existed at construction time
-                // (i.e. empty, since the row was brand new). Overwriting the CTRow
-                // afterwards does NOT refresh that cached cell list, so
-                // targetRow.getTableCells() would silently return an empty list and
-                // every cloned row's placeholders would never get replaced. Rebuilding
-                // the wrapper from the now-populated CTRow and swapping it back into
-                // the table's live row list fixes this without touching any XML.
                 targetRow = new XWPFTableRow(targetRow.getCtRow(), table);
                 table.getRows().set(insertIndex, targetRow);
             }
@@ -286,92 +259,71 @@ public class DocumentGeneratorService {
             }
         }
 
-        return insertIndex; // Skip scanning the rows we just created
+        return insertIndex;
     }
 
-    /**
-     * Returns the index of the first row in {@code rows} whose cell text contains
-     * {@code token}, or -1 if no row contains it.
-     */
     private int findRowIndexContainingToken(List<XWPFTableRow> rows, String token) {
         for (int i = 0; i < rows.size(); i++) {
-            XWPFTableRow row = rows.get(i);
-            for (XWPFTableCell cell : row.getTableCells()) {
+            for (XWPFTableCell cell : rows.get(i).getTableCells()) {
                 String text = cell.getText();
-                if (text != null && text.contains(token)) {
-                    return i;
-                }
+                if (text != null && text.contains(token)) return i;
             }
         }
         return -1;
     }
 
-    private void processParagraph(XWPFParagraph paragraph, PatentFormResponse data,
-            PatentFormResponse.InventorDTO specificInventor) {
-        if (paragraph == null || paragraph.getText() == null || paragraph.getText().trim().isEmpty()) {
+    // -------------------------------------------------------------------------
+    // PARAGRAPH PROCESSING
+    // -------------------------------------------------------------------------
+
+    private void processParagraph(XWPFParagraph paragraph,
+                                  PatentFormResponse data,
+                                  PatentFormResponse.InventorDTO specificInventor) {
+
+        if (paragraph == null
+                || paragraph.getText() == null
+                || paragraph.getText().trim().isEmpty()) {
             return;
         }
 
-        // 1. General Meta Tokens
+        // 1. General meta tokens
         replaceTextInParagraph(paragraph, "{{TITLE}}", data.getTitleOfInvention());
         replaceTextInParagraph(paragraph, "{{APPLICATION_TYPE}}", data.getApplicationType());
 
-        // Replace hardcoded "09th July 2026" with today's date dynamically
-        if (paragraph.getText().contains("09th July 2026")) {
-            LocalDate today = LocalDate.now();
-            int day = today.getDayOfMonth();
-            String suffix;
-            if (day >= 11 && day <= 13) {
-                suffix = "th";
-            } else {
-                switch (day % 10) {
-                    case 1:  suffix = "st"; break;
-                    case 2:  suffix = "nd"; break;
-                    case 3:  suffix = "rd"; break;
-                    default: suffix = "th"; break;
-                }
-            }
-            String formattedApplyDate = String.format("%02d%s %s %d", day, suffix, today.format(DateTimeFormatter.ofPattern("MMMM")), today.getYear());
-            replaceTextInParagraph(paragraph, "09th July 2026", formattedApplyDate);
-        }
-
-        // 2. Map Applicant Placeholders
+        // 2. Applicant placeholders
         if (data.getApplicant() != null) {
             PatentFormResponse.ApplicantDTO applicant = data.getApplicant();
 
-            replaceTextInParagraph(paragraph, "{{APP_NAME}}", applicant.getName());
+            replaceTextInParagraph(paragraph, "{{APP_NAME}}",    applicant.getName());
             replaceTextInParagraph(paragraph, "{{NATIONALITY}}", applicant.getNationality());
-            replaceTextInParagraph(paragraph, "{{RES_CO}}", applicant.getCountry()); // UPDATED: {{RESIDENCE_COUNTRY}}
-                                                                                     // -> {{RES_CO}}
+            replaceTextInParagraph(paragraph, "{{RES_CO}}",      applicant.getCountry());
 
             if (applicant.getAddress() != null) {
                 PatentFormResponse.AddressDTO address = applicant.getAddress();
-
-                replaceTextInParagraph(paragraph, "{{HOUSE_NO}}", address.getHouseNo() != null ? address.getHouseNo().trim() : "");
-                replaceTextInParagraph(paragraph, "{{STREET}}", address.getStreet() != null ? address.getStreet().trim() : "");
-                replaceTextInParagraph(paragraph, "{{CITY}}", address.getCity() != null ? address.getCity().trim() : "");
-                replaceTextInParagraph(paragraph, "{{STATE}}", address.getState() != null ? address.getState().trim() : "");
-                replaceTextInParagraph(paragraph, "{{COUNTRY}}", address.getCountry() != null ? address.getCountry().trim() : "");
-                replaceTextInParagraph(paragraph, "{{PINCODE}}", address.getPincode() != null ? address.getPincode().trim() : "");
+                replaceTextInParagraph(paragraph, "{{HOUSE_NO}}", "Department of CSE");
+                replaceTextInParagraph(paragraph, "{{STREET}}",   address.getStreet());
+                replaceTextInParagraph(paragraph, "{{CITY}}",     address.getCity());
+                replaceTextInParagraph(paragraph, "{{STATE}}",    address.getState());
+                replaceTextInParagraph(paragraph, "{{COUNTRY}}",  address.getCountry());
+                replaceTextInParagraph(paragraph, "{{PINCODE}}",  address.getPincode());
             }
         }
 
-        // 3. Dynamic Single-Inventor Row Mapping (used only by the Unified/cloned-row
-        // route)
+        // 3. Single-inventor row mapping (Unified / cloned-row route)
         if (specificInventor != null) {
-            replaceTextInParagraph(paragraph, "{{INV_NAME}}", specificInventor.getName());
+            replaceTextInParagraph(paragraph, "{{INV_NAME}}",
+                    specificInventor.getName());
             replaceTextInParagraph(paragraph, "{{INV_NAT}}",
                     specificInventor.getNationality() != null ? specificInventor.getNationality() : "Indian");
             replaceTextInParagraph(paragraph, "{{INV_COUNTRY}}",
                     specificInventor.getCountry() != null ? specificInventor.getCountry() : "India");
         }
-        // 4. Split-template fallback: stitch every inventor's name/nationality/country
-        // into the same existing cell (no row cloning) using physical line breaks.
+        // 4. Split-template fallback — stitch all inventors into one cell (vertical)
         else if (data.getInventors() != null && !data.getInventors().isEmpty()) {
             List<PatentFormResponse.InventorDTO> inventors = data.getInventors();
-            StringBuilder namesBuilder = new StringBuilder();
+            StringBuilder namesBuilder         = new StringBuilder();
             StringBuilder nationalitiesBuilder = new StringBuilder();
-            StringBuilder countriesBuilder = new StringBuilder();
+            StringBuilder countriesBuilder     = new StringBuilder();
 
             for (int i = 0; i < inventors.size(); i++) {
                 PatentFormResponse.InventorDTO inventor = inventors.get(i);
@@ -380,159 +332,169 @@ public class DocumentGeneratorService {
                     nationalitiesBuilder.append("\n");
                     countriesBuilder.append("\n");
                 }
-                namesBuilder.append(inventor.getName());
+                namesBuilder.append(inventor.getName() != null ? inventor.getName() : "");
                 nationalitiesBuilder.append(inventor.getNationality() != null ? inventor.getNationality() : "Indian");
                 countriesBuilder.append(inventor.getCountry() != null ? inventor.getCountry() : "India");
             }
 
-            replaceTextInParagraph(paragraph, "{{INV_NAME}}", namesBuilder.toString());
-            replaceTextInParagraph(paragraph, "{{INV_NAT}}", nationalitiesBuilder.toString());
+            replaceTextInParagraph(paragraph, "{{INV_NAME}}",    namesBuilder.toString());
+            replaceTextInParagraph(paragraph, "{{INV_NAT}}",     nationalitiesBuilder.toString());
             replaceTextInParagraph(paragraph, "{{INV_COUNTRY}}", countriesBuilder.toString());
         }
 
-        // 5. Shared/global address placeholders for the inventor block. These are
-        // filled once (not per-inventor) because the template only has a single
-        // occurrence of each address token - all inventors share the institution's
-        // address in this form.
+        // 5. Shared inventor address placeholders
         if (data.getApplicant() != null && data.getApplicant().getAddress() != null) {
             PatentFormResponse.AddressDTO addr = data.getApplicant().getAddress();
-            replaceTextInParagraph(paragraph, "{{INV_HOUSE_NO}}", addr.getHouseNo() != null ? addr.getHouseNo().trim() : "");
-            replaceTextInParagraph(paragraph, "{{INV_STREET}}", addr.getStreet() != null ? addr.getStreet().trim() : "");
-            replaceTextInParagraph(paragraph, "{{INV_CITY}}", addr.getCity() != null ? addr.getCity().trim() : "");
-            replaceTextInParagraph(paragraph, "{{INV_STATE}}", addr.getState() != null ? addr.getState().trim() : "");
-            replaceTextInParagraph(paragraph, "{{INV_COUNTRY_ADDR}}", addr.getCountry() != null ? addr.getCountry().trim() : "");
-            replaceTextInParagraph(paragraph, "{{INV_PIN}}", addr.getPincode() != null ? addr.getPincode().trim() : "");
+            replaceTextInParagraph(paragraph, "{{INV_HOUSE_NO}}",     "Department of CSE");
+            replaceTextInParagraph(paragraph, "{{INV_STREET}}",       addr.getStreet());
+            replaceTextInParagraph(paragraph, "{{INV_CITY}}",         addr.getCity());
+            replaceTextInParagraph(paragraph, "{{INV_STATE}}",        addr.getState());
+            replaceTextInParagraph(paragraph, "{{INV_COUNTRY_ADDR}}", addr.getCountry());
+            replaceTextInParagraph(paragraph, "{{INV_PIN}}",          addr.getPincode());
         }
 
-        // 6. Map Section 7: Address for Service of Applicant in India
-        if (data.getApplicant() != null && data.getApplicant().getAddress() != null) {
-            PatentFormResponse.AddressDTO sharedAddress = data.getApplicant().getAddress();
+        // 6. Principal details — from frontend input
+        if (data.getPrincipal() != null) {
+            PatentFormResponse.PrincipalDTO principal = data.getPrincipal();
 
-            String serviceName = "";
-            if (data.getApplicant() != null && data.getApplicant().getEmail() != null && !data.getApplicant().getEmail().isBlank()) {
-                serviceName = data.getApplicant().getEmail().trim();
-            } else if (sharedAddress.getPrincipalName() != null && !sharedAddress.getPrincipalName().isBlank()) {
-                serviceName = sharedAddress.getPrincipalName().trim();
-            }
-            replaceTextInParagraph(paragraph, "{{SERVICE_NAME}}", serviceName);
+            replaceTextInParagraph(paragraph, "{{SERVICE_NAME}}",   principal.getName());
+            replaceTextInParagraph(paragraph, "{{SERVICE_TEL}}",    principal.getTelephone());
+            replaceTextInParagraph(paragraph, "{{SERVICE_MOBILE}}", principal.getMobile());
+            replaceTextInParagraph(paragraph, "{{SERVICE_FAX}}",    principal.getFax());
+            replaceTextInParagraph(paragraph, "{{SERVICE_EMAIL}}",  principal.getEmail());
 
-            // Construct address dynamically without default fallback strings
-            List<String> addressParts = new ArrayList<>();
-            if (sharedAddress.getHouseNo() != null && !sharedAddress.getHouseNo().isBlank()) {
-                addressParts.add(sharedAddress.getHouseNo().trim());
-            }
-            if (sharedAddress.getStreet() != null && !sharedAddress.getStreet().isBlank()) {
-                addressParts.add(sharedAddress.getStreet().trim());
-            }
-            if (sharedAddress.getAreaLocality() != null && !sharedAddress.getAreaLocality().isBlank()) {
-                addressParts.add(sharedAddress.getAreaLocality().trim());
-            }
-            if (sharedAddress.getVillageTown() != null && !sharedAddress.getVillageTown().isBlank()) {
-                addressParts.add(sharedAddress.getVillageTown().trim());
-            }
-            if (sharedAddress.getCity() != null && !sharedAddress.getCity().isBlank()) {
-                addressParts.add(sharedAddress.getCity().trim());
-            }
-            if (sharedAddress.getDistrict() != null && !sharedAddress.getDistrict().isBlank()) {
-                addressParts.add(sharedAddress.getDistrict().trim());
-            }
-            if (sharedAddress.getState() != null && !sharedAddress.getState().isBlank()) {
-                addressParts.add(sharedAddress.getState().trim());
-            }
-            if (sharedAddress.getCountry() != null && !sharedAddress.getCountry().isBlank()) {
-                addressParts.add(sharedAddress.getCountry().trim());
-            }
-            
-            String fullPostalAddress = String.join(", ", addressParts);
-            if (sharedAddress.getPincode() != null && !sharedAddress.getPincode().isBlank()) {
-                if (!fullPostalAddress.isEmpty()) {
-                    fullPostalAddress += " - " + sharedAddress.getPincode().trim();
-                } else {
-                    fullPostalAddress = sharedAddress.getPincode().trim();
-                }
-            }
+            if (data.getApplicant() != null && data.getApplicant().getAddress() != null) {
+                PatentFormResponse.AddressDTO addr = data.getApplicant().getAddress();
 
-            replaceTextInParagraph(paragraph, "{{SERVICE_ADDRESS}}", fullPostalAddress);
+                String fullPostalAddress = principal.getName()
+                        + (addr.getStreet()  != null && !addr.getStreet().isEmpty()  ? ", " + addr.getStreet()  : "")
+                        + (addr.getCity()    != null && !addr.getCity().isEmpty()    ? ", " + addr.getCity()    : "")
+                        + (addr.getState()   != null && !addr.getState().isEmpty()   ? ", " + addr.getState()   : "")
+                        + (addr.getCountry() != null && !addr.getCountry().isEmpty() ? ", " + addr.getCountry() : "")
+                        + (addr.getPincode() != null && !addr.getPincode().isEmpty() ? " - " + addr.getPincode() : "");
 
-            String tel = (sharedAddress.getTelephone() != null) ? sharedAddress.getTelephone().trim() : "";
-            replaceTextInParagraph(paragraph, "{{SERVICE_TEL}}", tel);
-
-            String mobile = (sharedAddress.getMobile() != null) ? sharedAddress.getMobile().trim() : "";
-            replaceTextInParagraph(paragraph, "{{SERVICE_MOBILE}}", mobile);
-
-            String fax = (sharedAddress.getFax() != null) ? sharedAddress.getFax().trim() : "";
-            replaceTextInParagraph(paragraph, "{{SERVICE_FAX}}", fax);
-
-            String email = (sharedAddress.getEmail() != null) ? sharedAddress.getEmail().trim() : "";
-            replaceTextInParagraph(paragraph, "{{SERVICE_EMAIL}}", email);
+                replaceTextInParagraph(paragraph, "{{SERVICE_ADDRESS}}", fullPostalAddress);
+            }
         }
 
-        // 7. Map Document Metadata Attachments
+        // 7. Auto-generated date
+        LocalDate today = LocalDate.now();
+        int day = today.getDayOfMonth();
+
+        replaceTextInParagraph(paragraph, "{{DAY}}",
+                day + getDayOrdinalSuffix(day));
+        replaceTextInParagraph(paragraph, "{{MONTH}}",
+                today.format(DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH)));
+        replaceTextInParagraph(paragraph, "{{YEAR}}",
+                today.format(DateTimeFormatter.ofPattern("yyyy")));
+
+        // 8. ✅ Inventor signature block — HORIZONTAL format with tab spacing
+        // 8. Inventor signature block
+        if (data.getInventors() != null && !data.getInventors().isEmpty()) {
+            StringBuilder signaturesBuilder = new StringBuilder();
+            List<PatentFormResponse.InventorDTO> inventors = data.getInventors();
+
+            for (int i = 0; i < inventors.size(); i++) {
+                if (i > 0) signaturesBuilder.append("\t");
+                String name = inventors.get(i).getName();
+                signaturesBuilder.append(name != null ? name.toUpperCase() : "");
+            }
+
+            // ✅ Add this debug log
+            System.out.println("✅ INVENTOR SIGNATURES: " + signaturesBuilder.toString());
+            System.out.println("✅ INVENTOR COUNT: " + inventors.size());
+
+            replaceTextInParagraph(paragraph, "{{INVENTOR_NAME}}", signaturesBuilder.toString());
+        }
+
+
+        // 9. Document metadata — attachments
         if (data.getAttachments() != null) {
             PatentFormResponse.AttachmentsDTO attachments = data.getAttachments();
-            replaceTextInParagraph(paragraph, "{{PAGES}}", String.valueOf(attachments.getSpecificationPages()));
-            replaceTextInParagraph(paragraph, "{{CLAIMS}}", String.valueOf(attachments.getClaimsCount()));
+            replaceTextInParagraph(paragraph, "{{PAGES}}",
+                    String.valueOf(attachments.getSpecificationPages()));
+            replaceTextInParagraph(paragraph, "{{CLAIMS}}",
+                    String.valueOf(attachments.getClaimsCount()));
         }
     }
 
-    /**
-     * Replaces a token within a paragraph, first stitching together any runs Word
-     * split the token across (spellcheck/autocorrect commonly fragments
-     * "{{INV_NAME}}" into 2-3 runs). Multi-line replacement values are split on
-     * "\n"
-     * and rejoined using addBreak() (a real <w:br/>), never a literal newline
-     * character, since Word will not render "\n" typed into run text as a line
-     * break.
-     */
-    private void replaceTextInParagraph(XWPFParagraph paragraph, String targetToken, String replacementValue) {
-        List<XWPFRun> runs = paragraph.getRuns();
-        if (runs == null || runs.isEmpty())
-            return;
+    // -------------------------------------------------------------------------
+    // RUN-LEVEL PLACEHOLDER REPLACEMENT
+    // ✅ Updated to handle both \n (line breaks) and \t (tab spacing)
+    // -------------------------------------------------------------------------
 
-        // Stitch tokens split across Apache POI Runs safely
+    private void replaceTextInParagraph(XWPFParagraph paragraph,
+                                        String targetToken,
+                                        String replacementValue) {
+        List<XWPFRun> runs = paragraph.getRuns();
+        if (runs == null || runs.isEmpty()) return;
+
+        // Stitch all runs into one string to detect tokens split across runs
         StringBuilder sb = new StringBuilder();
         for (XWPFRun run : runs) {
             String text = run.getText(0);
-            if (text != null)
-                sb.append(text);
+            if (text != null) sb.append(text);
         }
 
         String fullText = sb.toString();
-        if (!fullText.contains(targetToken))
-            return;
+        if (!fullText.contains(targetToken)) return;
 
-        String valueToUse = replacementValue != null ? replacementValue : "";
+        String valueToUse  = replacementValue != null ? replacementValue : "";
         String updatedText = fullText.replace(targetToken, valueToUse);
 
-        // Retain original template font family, size, color, and weights
-        XWPFRun baseRun = runs.get(0);
-        String fontName = baseRun.getFontFamily() != null ? baseRun.getFontFamily() : "Arial";
-        int fontSize = baseRun.getFontSize() > 0 ? baseRun.getFontSize() : 11;
-        boolean isBold = baseRun.isBold();
-        String color = baseRun.getColor();
+        // Preserve base run formatting from the first run
+        XWPFRun baseRun  = runs.get(0);
+        String  fontName = baseRun.getFontFamily() != null ? baseRun.getFontFamily() : "Arial";
+        int     fontSize = baseRun.getFontSize() > 0      ? baseRun.getFontSize()    : 11;
+        boolean isBold   = baseRun.isBold();
+        String  color    = baseRun.getColor();
 
-        // Clear split run fragments cleanly
+        // Remove all existing runs cleanly
         for (int i = runs.size() - 1; i >= 0; i--) {
             paragraph.removeRun(i);
         }
 
-        // Safe multiline replacement wrapper
-        String[] lineParts = updatedText.split("\n");
+        // ✅ Split on \n first for line breaks
+        String[] lineParts = updatedText.split("\n", -1);
         for (int i = 0; i < lineParts.length; i++) {
-            XWPFRun newRun = paragraph.createRun();
-            newRun.setText(lineParts[i]);
-            newRun.setFontFamily(fontName);
-            if (fontSize > 0)
-                newRun.setFontSize(fontSize);
-            newRun.setBold(isBold);
-            if (color != null)
-                newRun.setColor(color);
+            String linePart = lineParts[i];
 
-            // Add hard line breaks for multiline segments safely without breaking cell
-            // structures
-            if (i < lineParts.length - 1) {
-                newRun.addBreak();
+            // ✅ Split each line on \t for horizontal tab spacing
+            String[] tabParts = linePart.split("\t", -1);
+            for (int t = 0; t < tabParts.length; t++) {
+                XWPFRun newRun = paragraph.createRun();
+                newRun.setText(tabParts[t]);
+                newRun.setFontFamily(fontName);
+                if (fontSize > 0) newRun.setFontSize(fontSize);
+                newRun.setBold(isBold);
+                if (color != null) newRun.setColor(color);
+
+                // ✅ Add real Word tab character after each segment except the last
+                if (t < tabParts.length - 1) {
+                    newRun.addTab();
+                }
             }
+
+            // ✅ Add real Word line break between lines except after the last line
+            if (i < lineParts.length - 1) {
+                XWPFRun breakRun = paragraph.createRun();
+                breakRun.setFontFamily(fontName);
+                breakRun.addBreak();
+            }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // HELPER — ORDINAL SUFFIX
+    // -------------------------------------------------------------------------
+
+    private String getDayOrdinalSuffix(int day) {
+        if (day >= 11 && day <= 13) return "th";
+        switch (day % 10) {
+            case 1:  return "st";
+            case 2:  return "nd";
+            case 3:  return "rd";
+            default: return "th";
         }
     }
 }

@@ -11,52 +11,42 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
+import java.util.*;
 
 @Service
 public class Form3GeneratorService {
 
     private static final Logger logger = LoggerFactory.getLogger(Form3GeneratorService.class);
 
+    // ------------------------------------------------------------------
+    // MAIN ENTRY POINT
+    // ------------------------------------------------------------------
+
     public byte[] generateForm3(PatentFormResponse data) {
-        ClassPathResource resource = new ClassPathResource("Form-3.docx");
+
+        ClassPathResource resource = new ClassPathResource("FORM3main.docx");
 
         if (!resource.exists()) {
             logger.error("❌ CRITICAL: Form-3.docx was NOT found inside src/main/resources/");
             return new byte[0];
         }
 
-        try (InputStream is = resource.getInputStream(); XWPFDocument document = new XWPFDocument(is)) {
+        try (InputStream is = resource.getInputStream();
+             XWPFDocument document = new XWPFDocument(is)) {
 
             Map<String, String> replacements = buildReplacementsMap(data);
 
             // 1. Process standalone paragraphs
             if (document.getParagraphs() != null) {
-                for (XWPFParagraph paragraph : document.getParagraphs()) {
-                    replacePlaceholdersInParagraph(paragraph, replacements);
+                for (XWPFParagraph paragraph : new ArrayList<>(document.getParagraphs())) {
+                    replacePlaceholders(paragraph, replacements);
                 }
             }
 
-            // 2. Process table cells
+            // 2. Process table cells (and NESTED tables!)
             if (document.getTables() != null) {
                 for (XWPFTable table : document.getTables()) {
-                    for (XWPFTableRow row : table.getRows()) {
-                        for (XWPFTableCell cell : row.getTableCells()) {
-                            String cellText = cell.getText().toLowerCase();
-                            if (cellText.contains("controller of patents") && !cellText.contains("undertake")) {
-                                String branch = replacements.get("{patentOfficeBranch}");
-                                cleanControllerAddressCell(cell, branch);
-                                continue;
-                            }
-                            
-                            for (XWPFParagraph paragraph : cell.getParagraphs()) {
-                                replacePlaceholdersInParagraph(paragraph, replacements);
-                            }
-                        }
-                    }
+                    replaceInTable(table, replacements);
                 }
             }
 
@@ -65,188 +55,196 @@ public class Form3GeneratorService {
                 return bos.toByteArray();
             }
         } catch (Exception e) {
-            logger.error("❌ CRITICAL EXCEPTION DURING PROCESSING:", e);
+            logger.error("❌ CRITICAL EXCEPTION DURING FORM 3 PROCESSING:", e);
             return new byte[0];
         }
     }
 
-    private Map<String, String> buildReplacementsMap(PatentFormResponse data) {
-        Map<String, String> map = new HashMap<>();
-        LocalDate today = LocalDate.now();
+    // ------------------------------------------------------------------
+    // RECURSIVE METHOD TO FIX THE TABLE ISSUE
+    // ------------------------------------------------------------------
+    private void replaceInTable(XWPFTable table, Map<String, String> replacements) {
+        for (XWPFTableRow row : table.getRows()) {
+            for (XWPFTableCell cell : row.getTableCells()) {
 
-        // 1. Primary Applicant Names (stacked vertically via newline)
-        String primaryApplicant = "";
-        if (data.getApplicant() != null && data.getApplicant().getName() != null) {
-            primaryApplicant = data.getApplicant().getName().replaceAll(",\\s*", "\n").trim();
-        }
-        map.put("{applicantName}", primaryApplicant.isEmpty() ? "N/A" : primaryApplicant);
+                for (XWPFParagraph paragraph : cell.getParagraphs()) {
+                    replacePlaceholders(paragraph, replacements);
+                }
 
-        // 2. Extract and format the Inventor Names and Details cleanly
-        String inventorNamesOnly = "N/A";
-        String inventorFullDetails = "N/A";
-
-        if (data.getInventors() != null && !data.getInventors().isEmpty()) {
-            // Extract just the names (e.g., "Merlin Shiny J\nVaidegi D")
-            inventorNamesOnly = data.getInventors().stream()
-                    .map(inv -> inv.getName())
-                    .collect(Collectors.joining("\n"));
-
-            // Extract full details with nationality and address
-            inventorFullDetails = data.getInventors().stream()
-                    .map(inv -> inv.getName() + " (" + inv.getNationality() + ", Resident of " + inv.getCountry() + ")")
-                    .collect(Collectors.joining("\n"));
-        }
-
-        // Set the standard joint applicant block to the full details
-        map.put("{jointApplicants}", inventorFullDetails);
-
-        // 💡 3. THE FIX: Map the Assignee tags to display the INVENTORS' data instead!
-        map.put("{assigneeName}", inventorNamesOnly);
-        map.put("{assigneeDetails}", inventorFullDetails);
-        map.put("{assigneeAddress}", inventorFullDetails); // Backwards compatibility fallback
-
-        // Standard formatting fallbacks
-        map.put("{baseApplicationNo}", "____________________");
-        map.put("{baseApplicationDate}", "____________________");
-        map.put("{country}", "N/A");
-        map.put("{appDate}", "N/A");
-        map.put("{fAppNo}", "N/A");
-        map.put("{appStatus}", "N/A");
-        map.put("{pubDate}", "N/A");
-        map.put("{grantDate}", "N/A");
-
-        // 4. Execution Dates
-        map.put("{currentDay}", String.valueOf(today.getDayOfMonth()));
-        map.put("{currentMonth}", today.format(DateTimeFormatter.ofPattern("MMMM")));
-        map.put("{currentYear}", String.valueOf(today.getYear()).substring(Math.max(0, String.valueOf(today.getYear()).length() - 2)));
-
-        String signName = "N/A";
-        if (data.getApplicant() != null && data.getApplicant().getName() != null) {
-            String[] splitNames = data.getApplicant().getName().split(",");
-            if (splitNames.length > 0) {
-                signName = splitNames[0].trim();
+                for (XWPFTable nestedTable : cell.getTables()) {
+                    replaceInTable(nestedTable, replacements);
+                }
             }
         }
-        map.put("{signatureName}", signName);
-        map.put("{patentOfficeBranch}", "Chennai");
+    }
+
+    // ------------------------------------------------------------------
+    // BUILD PLACEHOLDER MAP
+    // ------------------------------------------------------------------
+
+    private Map<String, String> buildReplacementsMap(PatentFormResponse data) {
+        Map<String, String> map = new HashMap<>();
+
+        // 1. {principal} - Name of the Principal
+        String principalName = "";
+        if (data.getPrincipal() != null && notBlank(data.getPrincipal().getName())) {
+            principalName = data.getPrincipal().getName();
+        }
+        map.put("{principal}", principalName);
+
+        // 2. {role} - Designation of the Principal
+        String role = "";
+        if (data.getPrincipal() != null && notBlank(data.getPrincipal().getDesignation())) {
+            role = data.getPrincipal().getDesignation();
+        }
+        // Fallback just in case the frontend sends bad data again
+        if (role.isEmpty()) role = "Principal";
+        map.put("{role}", role);
+
+        // 3. {college_name} - Standard casing
+        String clgName = "";
+        if (data.getApplicant() != null && notBlank(data.getApplicant().getName())) {
+            clgName = data.getApplicant().getName();
+        }
+        map.put("{college_name}", clgName);
+
+        // 4. {COLLEGE_NAME} - UPPERCASE for the Assignee section
+        map.put("{COLLEGE_NAME}", clgName.toUpperCase());
+
+        // 5. {address} - Multi-line formatted address
+        map.put("{address}", buildMultiLineAddress(data));
+
+        // 6. {date} - Format: 10th August 2026
+        LocalDate today = LocalDate.now();
+        int day = today.getDayOfMonth();
+        String formattedDate = day + getOrdinalSuffix(day) + " "
+                + today.format(DateTimeFormatter.ofPattern("MMMM", Locale.ENGLISH))
+                + " " + today.format(DateTimeFormatter.ofPattern("yyyy"));
+        map.put("{date}", formattedDate);
 
         return map;
     }
 
-    private void replacePlaceholdersInParagraph(XWPFParagraph paragraph, Map<String, String> replacements) {
+    // ------------------------------------------------------------------
+    // BUILD MULTI-LINE ADDRESS
+    // ------------------------------------------------------------------
+
+    private String buildMultiLineAddress(PatentFormResponse data) {
+        if (data.getApplicant() == null || data.getApplicant().getAddress() == null) {
+            return "";
+        }
+
+        PatentFormResponse.AddressDTO addr = data.getApplicant().getAddress();
+        StringBuilder sb = new StringBuilder();
+
+        List<String> line1 = new ArrayList<>();
+        if (notBlank(addr.getHouseNo())) line1.add(addr.getHouseNo());
+        if (notBlank(addr.getStreet())) line1.add(addr.getStreet());
+        if (!line1.isEmpty()) sb.append(String.join(", ", line1));
+
+        List<String> line2 = new ArrayList<>();
+        if (notBlank(addr.getCity())) line2.add(addr.getCity());
+        if (notBlank(addr.getDistrict())) line2.add(addr.getDistrict());
+        if (!line2.isEmpty()) {
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(String.join(", ", line2));
+        }
+
+        if (notBlank(addr.getState())) {
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(addr.getState());
+        }
+
+        StringBuilder countryLine = new StringBuilder();
+        if (notBlank(addr.getCountry())) {
+            countryLine.append(addr.getCountry());
+        } else {
+            countryLine.append("India");
+        }
+
+        if (notBlank(addr.getPincode())) {
+            countryLine.append(" - ").append(addr.getPincode());
+        }
+
+        if (sb.length() > 0) sb.append("\n");
+        sb.append(countryLine);
+
+        return sb.toString();
+    }
+
+    // ------------------------------------------------------------------
+    // PLACEHOLDER REPLACER (Handles multiline vertical breaks correctly)
+    // ------------------------------------------------------------------
+
+    private void replacePlaceholders(XWPFParagraph paragraph, Map<String, String> replacements) {
         if (paragraph == null) return;
         List<XWPFRun> runs = paragraph.getRuns();
         if (runs == null || runs.isEmpty()) return;
 
-        StringBuilder consolidatedText = new StringBuilder();
+        StringBuilder sb = new StringBuilder();
         for (XWPFRun run : runs) {
             String text = run.getText(0);
-            if (text != null) {
-                consolidatedText.append(text);
-            }
+            if (text != null) sb.append(text);
         }
 
-        String paragraphText = consolidatedText.toString();
-        boolean replacedAny = false;
+        String fullText = sb.toString();
+        boolean replaced = false;
 
-        // 1. Clean up and format the Date block
-        if (paragraphText.contains("Dated this") || paragraphText.toLowerCase().contains("dated this")) {
-            String day = replacements.get("{currentDay}");
-            String month = replacements.get("{currentMonth}");
-            String year = replacements.get("{currentYear}");
-            if (day != null && month != null && year != null) {
-                if (year.length() == 2) {
-                    year = "20" + year;
-                }
-                
-                // Replace 20{currentYear} first to avoid 202026 duplication
-                paragraphText = paragraphText.replace("20{currentYear}", year);
-                paragraphText = paragraphText.replace("{currentDay}", day);
-                paragraphText = paragraphText.replace("{currentMonth}", month);
-                paragraphText = paragraphText.replace("{currentYear}", year);
-                
-                // Replace raw underscore line: "Dated this______day of_______20"
-                paragraphText = paragraphText.replaceAll("(?i)Dated this\\s*[_\\s]+day of\\s*[_\\s]+20\\d*", "Dated this " + day + " day of " + month + ", " + year);
-                paragraphText = paragraphText.replaceAll("(?i)Dated this\\s*[_\\s]*day of\\s*[_\\s]*20", "Dated this " + day + " day of " + month + ", " + year);
-                replacedAny = true;
-            }
-        }
-
-        // 2. Apply standard map replacements
         for (Map.Entry<String, String> entry : replacements.entrySet()) {
-            if (paragraphText.contains(entry.getKey())) {
-                paragraphText = paragraphText.replace(entry.getKey(), entry.getValue() != null ? entry.getValue() : "");
-                replacedAny = true;
+            if (fullText.contains(entry.getKey())) {
+                fullText = fullText.replace(entry.getKey(), entry.getValue());
+                replaced = true;
             }
         }
 
-        if (replacedAny) {
-            XWPFRun baseRun = runs.get(0);
-            String fontFamily = baseRun.getFontFamily();
-            Double fontSize = baseRun.getFontSizeAsDouble();
-            boolean isBold = baseRun.isBold();
-            boolean isItalic = baseRun.isItalic();
-            String color = baseRun.getColor();
+        if (!replaced) return;
 
-            // Clear existing layout fragments completely
-            for (int i = runs.size() - 1; i >= 0; i--) {
-                paragraph.removeRun(i);
-            }
+        XWPFRun baseRun = runs.get(0);
+        String fontFamily = baseRun.getFontFamily();
+        Double fontSize = baseRun.getFontSizeAsDouble();
+        boolean isBold = baseRun.isBold();
+        boolean isItalic = baseRun.isItalic();
+        String color = baseRun.getColor();
 
-            // Zero out standard margins to avoid vertical swelling inside the table cell
-            paragraph.setSpacingBefore(0);
-            paragraph.setSpacingAfter(0);
+        for (int i = runs.size() - 1; i >= 0; i--) {
+            paragraph.removeRun(i);
+        }
 
+        // Split on newline (\n) so Word interprets vertical stacks properly
+        String[] lines = fullText.split("\n", -1);
+
+        for (int i = 0; i < lines.length; i++) {
             XWPFRun newRun = paragraph.createRun();
+            newRun.setText(lines[i]);
+
             if (fontFamily != null) newRun.setFontFamily(fontFamily);
             if (fontSize != null && fontSize > 0) newRun.setFontSize(fontSize);
             newRun.setBold(isBold);
             newRun.setItalic(isItalic);
             if (color != null) newRun.setColor(color);
 
-            // Split text blocks dynamically by the newline identifier
-            String[] lines = paragraphText.split("\n", -1);
-            for (int i = 0; i < lines.length; i++) {
-                newRun.setText(lines[i]);
-                if (i < lines.length - 1) {
-                    newRun.addCarriageReturn(); // Breaks layout vertically within the same container block
-                }
+            // Important: Use addBreak() for real line breaks in Word
+            if (i < lines.length - 1) {
+                newRun.addBreak();
             }
         }
     }
 
-    private void cleanControllerAddressCell(XWPFTableCell cell, String branch) {
-        if (branch == null || branch.isEmpty()) {
-            branch = "Chennai";
+    // ------------------------------------------------------------------
+    // HELPERS
+    // ------------------------------------------------------------------
+
+    private String getOrdinalSuffix(int day) {
+        if (day >= 11 && day <= 13) return "th";
+        switch (day % 10) {
+            case 1: return "st";
+            case 2: return "nd";
+            case 3: return "rd";
+            default: return "th";
         }
-        
-        while (cell.getParagraphs().size() > 1) {
-            cell.removeParagraph(1);
-        }
-        
-        XWPFParagraph p1 = cell.getParagraphs().get(0);
-        while (p1.getRuns().size() > 0) {
-            p1.removeRun(0);
-        }
-        XWPFRun r1 = p1.createRun();
-        r1.setFontFamily("Times New Roman");
-        r1.setFontSize(12);
-        r1.setText("To");
-        
-        XWPFParagraph p2 = cell.addParagraph();
-        p2.setSpacingBefore(0);
-        p2.setSpacingAfter(0);
-        XWPFRun r2 = p2.createRun();
-        r2.setFontFamily("Times New Roman");
-        r2.setFontSize(12);
-        r2.setText("The Controller of Patents");
-        
-        XWPFParagraph p3 = cell.addParagraph();
-        p3.setSpacingBefore(0);
-        p3.setSpacingAfter(0);
-        XWPFRun r3 = p3.createRun();
-        r3.setFontFamily("Times New Roman");
-        r3.setFontSize(12);
-        r3.setText("The Patent Office, at " + branch);
+    }
+
+    private boolean notBlank(String s) {
+        return s != null && !s.trim().isEmpty();
     }
 }
